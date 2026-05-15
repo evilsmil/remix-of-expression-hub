@@ -21,7 +21,7 @@ export default function Register() {
 
   if (user) return <Navigate to="/" replace />;
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (password !== confirmPassword) {
@@ -29,14 +29,17 @@ export default function Register() {
       return;
     }
     setLoading(true);
-    const res = register(email, name, password);
-    setLoading(false);
-    if (res.ok !== true) {
-      setError(res.error);
-      return;
+    try {
+      const res = await register(email, name, password);
+      if (res.ok !== true) {
+        setError(res.error);
+        return;
+      }
+      toast.success("Compte créé avec succès");
+      navigate("/", { replace: true });
+    } finally {
+      setLoading(false);
     }
-    toast.success("Compte créé avec succès ! Vous pouvez maintenant vous connecter.");
-    navigate("/login", { replace: true });
   }
 
   return (

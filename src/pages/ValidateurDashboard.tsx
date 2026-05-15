@@ -104,7 +104,7 @@ export default function ValidateurDashboard() {
         <KpiCard label="En cours" value={enCours} accent="warning" />
         <KpiCard label="Validées" value={validees} accent="success" />
         <KpiCard label="Refusés" value={refusees} accent="destructive" />
-        <KpiCard label="En retard" value={lateCount} accent="destructive" />
+        <KpiCard label="En attente" value={lateCount} accent="destructive" />
       </div>
 
       <div className="rounded-lg border border-border bg-card p-5">

@@ -15,6 +15,7 @@ import {
 } from "recharts";
 import { format, subDays, startOfDay } from "date-fns";
 import { fr } from "date-fns/locale";
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Shield, Users, FileText, TrendingUp, AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { useFebStore } from "@/store/feb-store";
@@ -39,7 +40,15 @@ const STATUS_COLORS: Record<string, string> = {
 export default function AdminDashboard() {
   const febs = useFebStore((s) => s.febs);
   const user = useFebStore((s) => s.getCurrentUser());
+  const authUser = useAuthStore((s) => s.user);
   const registeredUsers = useAuthStore((s) => s.registeredUsers);
+  const fetchUsers = useAuthStore((s) => s.fetchUsers);
+
+  useEffect(() => {
+    if (authUser?.role === "admin" || authUser?.role === "super_admin") {
+      void fetchUsers();
+    }
+  }, [authUser?.role, fetchUsers]);
 
   const total = febs.length;
   const enCours = febs.filter((f) => f.status.startsWith("en_attente")).length;

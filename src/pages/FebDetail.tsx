@@ -58,7 +58,7 @@ export default function FebDetail() {
   // Post-validation tracking fields (local state for editing)
   const [trackProjectName, setTrackProjectName] = useState("");
   const [trackFebDetails, setTrackFebDetails] = useState("");
-  const [trackReceivedVia, setTrackReceivedVia] = useState<string>("plateforme");
+  const [trackReceivedVia, setTrackReceivedVia] = useState<ReceivedVia>("plateforme");
   const [trackBudgetSpend, setTrackBudgetSpend] = useState<number>(0);
   const [trackAssignee, setTrackAssignee] = useState("");
   const [trackHistorySpend, setTrackHistorySpend] = useState<number>(0);
@@ -122,7 +122,7 @@ export default function FebDetail() {
     updateFeb(feb.id, {
       projectName: trackProjectName.trim() || undefined,
       febDetails: trackFebDetails.trim() || undefined,
-      receivedVia: (trackReceivedVia as any) || undefined,
+      receivedVia: trackReceivedVia,
       budgetSpend: trackBudgetSpend || undefined,
       assignee: trackAssignee.trim() || undefined,
       historySpend: trackHistorySpend || undefined,
@@ -283,7 +283,7 @@ export default function FebDetail() {
                 </div>
                 <div>
                   <Label>Reçu via</Label>
-                  <Select value={trackReceivedVia} onValueChange={setTrackReceivedVia}>
+                  <Select value={trackReceivedVia} onValueChange={(value) => setTrackReceivedVia(value as ReceivedVia)}>
                     <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {(Object.keys(RECEIVED_VIA_LABELS) as ReceivedVia[]).map((k) => (

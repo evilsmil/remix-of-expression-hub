@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "@/store/auth-store";
 import { Role, ROLE_LABELS } from "@/types/feb";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,9 +20,35 @@ const ASSIGNABLE_ROLES: Role[] = [
 export default function Administration() {
   const currentUser = useAuthStore((s) => s.user);
   const registeredUsers = useAuthStore((s) => s.registeredUsers);
+  const fetchUsers = useAuthStore((s) => s.fetchUsers);
   const updateUserRole = useAuthStore((s) => s.updateUserRole);
+  const [loading, setLoading] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const isSuperAdmin = currentUser?.role === "super_admin";
 
-  if (!currentUser || currentUser.role !== "super_admin") {
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+
+    let cancelled = false;
+
+    async function loadUsers() {
+      setLoading(true);
+      const result = await fetchUsers();
+      if (cancelled) return;
+      if (result.ok !== true) {
+        toast.error(result.error);
+      }
+      setLoading(false);
+    }
+
+    loadUsers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin, fetchUsers]);
+
+  if (!isSuperAdmin) {
     return (
       <div className="flex items-center justify-center h-64">
         <p className="text-muted-foreground">Accès réservé au super administrateur.</p>
@@ -30,9 +56,17 @@ export default function Administration() {
     );
   }
 
-  function handleRoleChange(email: string, newRole: Role) {
-    updateUserRole(email, newRole);
-    toast.success(`Rôle mis à jour avec succès.`);
+  async function handleRoleChange(userId: string, newRole: Role) {
+    setUpdatingUserId(userId);
+    const result = await updateUserRole(userId, newRole);
+    setUpdatingUserId(null);
+
+    if (result.ok !== true) {
+      toast.error(result.error);
+      return;
+    }
+
+    toast.success("Rôle mis à jour avec succès.");
   }
 
   return (
@@ -53,7 +87,9 @@ export default function Administration() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {registeredUsers.length === 0 ? (
+          {loading ? (
+            <p className="text-muted-foreground text-center py-8">Chargement des utilisateurs...</p>
+          ) : registeredUsers.length === 0 ? (
             <p className="text-muted-foreground text-center py-8">Aucun utilisateur enregistré.</p>
           ) : (
             <Table>
@@ -81,7 +117,8 @@ export default function Administration() {
                       ) : (
                         <Select
                           value={user.role}
-                          onValueChange={(v) => handleRoleChange(user.email, v as Role)}
+                          disabled={updatingUserId === user.id}
+                          onValueChange={(v) => handleRoleChange(user.id, v as Role)}
                         >
                           <SelectTrigger className="w-[260px]">
                             <SelectValue />

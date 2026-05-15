@@ -1,10 +1,16 @@
 import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import autoTable, { type RowInput } from "jspdf-autotable";
 import { Feb, ROLE_LABELS } from "@/types/feb";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
 const fmtXAF = (n: number) => new Intl.NumberFormat("fr-FR").format(n) + " FCFA";
+
+type AutoTableDocument = jsPDF & { lastAutoTable?: { finalY?: number } };
+
+function autoTableFinalY(doc: jsPDF): number {
+  return (doc as AutoTableDocument).lastAutoTable?.finalY ?? 0;
+}
 
 export function exportFebPdf(feb: Feb) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
@@ -41,7 +47,7 @@ export function exportFebPdf(feb: Feb) {
     ],
   });
 
-  let y = (doc as any).lastAutoTable.finalY + 6;
+  let y = autoTableFinalY(doc) + 6;
 
   // Section a — Département
   doc.setFontSize(10);
@@ -54,7 +60,7 @@ export function exportFebPdf(feb: Feb) {
     styles: { fontSize: 8, cellPadding: 2 },
     body: [[{ content: `● ${feb.departement}`, styles: { fontStyle: "bold", fillColor: [255, 247, 200] } }]],
   });
-  y = (doc as any).lastAutoTable.finalY + 6;
+  y = autoTableFinalY(doc) + 6;
 
   // Section b — Identification du besoin
   doc.setFont("helvetica", "bold");
@@ -133,7 +139,7 @@ export function exportFebPdf(feb: Feb) {
       : undefined,
   });
 
-  y = (doc as any).lastAutoTable.finalY + 6;
+  y = autoTableFinalY(doc) + 6;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
@@ -157,7 +163,7 @@ export function exportFebPdf(feb: Feb) {
   doc.setFontSize(10);
   doc.text("c. Validation de la fiche", margin, y);
 
-  const sigRow: any[] = [
+  const sigRow: RowInput = [
     { content: "Demandeur", styles: { fontStyle: "bold", fillColor: [241, 245, 249] } },
     { content: "Resp. Pôle Technique", styles: { fontStyle: "bold", fillColor: [241, 245, 249] } },
     { content: "Responsable du Pôle", styles: { fontStyle: "bold", fillColor: [241, 245, 249] } },
@@ -229,7 +235,7 @@ export function exportFebPdf(feb: Feb) {
     },
   });
 
-  y = (doc as any).lastAutoTable.finalY + 4;
+  y = autoTableFinalY(doc) + 4;
   const valRecep = feb.validations.find((v) => v.role === "supply_chain");
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);

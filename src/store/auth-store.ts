@@ -2,15 +2,58 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Role } from "@/types/feb";
 
-const SUPER_ADMIN_EMAIL = "jalil.ketou@upowa.org";
-const SUPER_ADMIN_PASSWORD = "jalil@123";
-
 const ALLOWED_DOMAIN = "@upowa.org";
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+
+type ApiRole =
+  | "DEMANDEUR"
+  | "RESPONSABLE_TECHNIQUE"
+  | "RESPONSABLE_POLE"
+  | "RPAF"
+  | "SUPPLY_CHAIN"
+  | "ADMIN"
+  | "SUPER_ADMIN";
+
+const API_TO_APP_ROLE: Record<ApiRole, Role> = {
+  DEMANDEUR: "demandeur",
+  RESPONSABLE_TECHNIQUE: "responsable_technique",
+  RESPONSABLE_POLE: "responsable_pole",
+  RPAF: "rpaf",
+  SUPPLY_CHAIN: "supply_chain",
+  ADMIN: "admin",
+  SUPER_ADMIN: "super_admin",
+};
+
+const APP_TO_API_ROLE: Record<Role, ApiRole> = {
+  demandeur: "DEMANDEUR",
+  responsable_technique: "RESPONSABLE_TECHNIQUE",
+  responsable_pole: "RESPONSABLE_POLE",
+  rpaf: "RPAF",
+  supply_chain: "SUPPLY_CHAIN",
+  admin: "ADMIN",
+  super_admin: "SUPER_ADMIN",
+};
+
+interface ApiUser {
+  id: string;
+  email: string;
+  name: string;
+  role: ApiRole;
+  departmentId: string | null;
+}
+
+interface AuthResponse {
+  user: ApiUser;
+  accessToken: string;
+  refreshToken: string;
+}
 
 export interface AuthUser {
+  id: string;
   email: string;
   name: string;
   role: Role;
+  departmentId: string | null;
 }
 
 export function isAllowedEmail(email: string): boolean {
@@ -18,28 +61,105 @@ export function isAllowedEmail(email: string): boolean {
 }
 
 interface RegisteredUser {
+  id: string;
   email: string;
   name: string;
-  password: string;
   role: Role;
+  departmentId: string | null;
 }
+
+type AuthResult = Promise<{ ok: true } | { ok: false; error: string }>;
 
 interface AuthStore {
   user: AuthUser | null;
+  accessToken: string | null;
+  refreshToken: string | null;
   registeredUsers: RegisteredUser[];
-  login: (email: string, password: string) => { ok: true } | { ok: false; error: string };
-  register: (email: string, name: string, password: string) => { ok: true } | { ok: false; error: string };
-  logout: () => void;
-  updateUserRole: (email: string, role: Role) => void;
+  login: (email: string, password: string) => AuthResult;
+  register: (email: string, name: string, password: string) => AuthResult;
+  logout: () => Promise<void>;
+  fetchUsers: () => AuthResult;
+  updateUserRole: (id: string, role: Role) => AuthResult;
   getAllUsers: () => RegisteredUser[];
+}
+
+function toAuthUser(user: ApiUser): AuthUser {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: API_TO_APP_ROLE[user.role],
+    departmentId: user.departmentId,
+  };
+}
+
+function upsertRegisteredUser(users: RegisteredUser[], user: AuthUser): RegisteredUser[] {
+  const nextUser = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    departmentId: user.departmentId,
+  };
+
+  const exists = users.some((item) => item.email === user.email);
+  return exists
+    ? users.map((item) => (item.email === user.email ? nextUser : item))
+    : [...users, nextUser];
+}
+
+function toRegisteredUser(user: ApiUser): RegisteredUser {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: API_TO_APP_ROLE[user.role],
+    departmentId: user.departmentId,
+  };
+}
+
+async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...init.headers,
+    },
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      typeof payload?.message === "string"
+        ? payload.message
+        : Array.isArray(payload?.message)
+          ? payload.message.join(" ")
+          : "Requête refusée par le serveur.";
+    throw new Error(message);
+  }
+
+  return payload as T;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof TypeError) {
+    return "Impossible de joindre l'API. Vérifiez que le backend est démarré.";
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Une erreur inattendue est survenue.";
 }
 
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
       user: null,
+      accessToken: null,
+      refreshToken: null,
       registeredUsers: [],
-      register: (rawEmail, name, password) => {
+      register: async (rawEmail, name, password) => {
         const email = rawEmail.toLowerCase().trim();
         if (!email || !name || !password) {
           return { ok: false, error: "Tous les champs sont requis." };
@@ -50,16 +170,25 @@ export const useAuthStore = create<AuthStore>()(
         if (password.length < 6) {
           return { ok: false, error: "Le mot de passe doit contenir au moins 6 caractères." };
         }
-        const existing = get().registeredUsers.find((u) => u.email === email);
-        if (existing) {
-          return { ok: false, error: "Un compte existe déjà avec cette adresse e-mail." };
+
+        try {
+          const response = await apiRequest<AuthResponse>("/auth/register", {
+            method: "POST",
+            body: JSON.stringify({ email, name: name.trim(), password }),
+          });
+          const user = toAuthUser(response.user);
+          set((state) => ({
+            user,
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            registeredUsers: upsertRegisteredUser(state.registeredUsers, user),
+          }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error) };
         }
-        set((s) => ({
-          registeredUsers: [...s.registeredUsers, { email, name: name.trim(), password, role: "demandeur" }],
-        }));
-        return { ok: true };
       },
-      login: (rawEmail, password) => {
+      login: async (rawEmail, password) => {
         const email = rawEmail.toLowerCase().trim();
         if (!email || !password) {
           return { ok: false, error: "Email et mot de passe requis." };
@@ -68,51 +197,88 @@ export const useAuthStore = create<AuthStore>()(
           return { ok: false, error: "Accès réservé aux adresses @upowa.org." };
         }
 
-        // Super admin built-in account
-        if (email === SUPER_ADMIN_EMAIL && password === SUPER_ADMIN_PASSWORD) {
-          const user: AuthUser = {
-            email,
-            name: "Jalil Ketou",
-            role: "super_admin",
-          };
-          set({ user });
-          // Ensure super admin is also in registeredUsers for listing
-          const exists = get().registeredUsers.find((u) => u.email === email);
-          if (!exists) {
-            set((s) => ({
-              registeredUsers: [...s.registeredUsers, { email, name: "Jalil Ketou", password: SUPER_ADMIN_PASSWORD, role: "super_admin" }],
-            }));
-          }
+        try {
+          const response = await apiRequest<AuthResponse>("/auth/login", {
+            method: "POST",
+            body: JSON.stringify({ email, password }),
+          });
+          const user = toAuthUser(response.user);
+          set((state) => ({
+            user,
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            registeredUsers: upsertRegisteredUser(state.registeredUsers, user),
+          }));
           return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error) };
+        }
+      },
+      logout: async () => {
+        const { accessToken, refreshToken } = get();
+        set({ user: null, accessToken: null, refreshToken: null });
+
+        if (!accessToken) return;
+
+        await apiRequest<{ ok: true }>("/auth/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ refreshToken }),
+        }).catch(() => undefined);
+      },
+      fetchUsers: async () => {
+        const { accessToken } = get();
+        if (!accessToken) {
+          return { ok: false, error: "Session expirée. Veuillez vous reconnecter." };
         }
 
-        const registered = get().registeredUsers.find((u) => u.email === email);
-        if (!registered) {
-          return { ok: false, error: "Aucun compte trouvé avec cette adresse. Veuillez créer un compte." };
+        try {
+          const users = await apiRequest<ApiUser[]>("/users", {
+            method: "GET",
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          set((state) => {
+            const registeredUsers = users.map(toRegisteredUser);
+            const currentUser = state.user
+              ? registeredUsers.find((user) => user.id === state.user?.id)
+              : undefined;
+
+            return {
+              registeredUsers,
+              user: currentUser ? { ...state.user, ...currentUser } : state.user,
+            };
+          });
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error) };
         }
-        if (registered.password !== password) {
-          return { ok: false, error: "Mot de passe incorrect." };
-        }
-        const user: AuthUser = {
-          email,
-          name: registered.name,
-          role: registered.role,
-        };
-        set({ user });
-        return { ok: true };
       },
-      logout: () => set({ user: null }),
-      updateUserRole: (email: string, role: Role) => {
-        set((s) => ({
-          registeredUsers: s.registeredUsers.map((u) =>
-            u.email === email ? { ...u, role } : u
-          ),
-          // Also update current user if they're the one being changed
-          user: s.user && s.user.email === email ? { ...s.user, role } : s.user,
-        }));
+      updateUserRole: async (id: string, role: Role) => {
+        const { accessToken } = get();
+        if (!accessToken) {
+          return { ok: false, error: "Session expirée. Veuillez vous reconnecter." };
+        }
+
+        try {
+          const response = await apiRequest<ApiUser>(`/users/${id}/role`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ role: APP_TO_API_ROLE[role] }),
+          });
+          const updatedUser = toRegisteredUser(response);
+          set((state) => ({
+            registeredUsers: state.registeredUsers.map((user) =>
+              user.id === id ? updatedUser : user,
+            ),
+            user: state.user && state.user.id === id ? { ...state.user, ...updatedUser } : state.user,
+          }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error) };
+        }
       },
       getAllUsers: () => get().registeredUsers,
     }),
-    { name: "auth-store-v3" }
-  )
+    { name: "auth-store-v4" },
+  ),
 );

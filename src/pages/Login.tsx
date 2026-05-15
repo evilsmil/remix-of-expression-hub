@@ -19,18 +19,21 @@ export default function Login() {
 
   if (user) return <Navigate to="/" replace />;
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const res = login(email, password);
-    setLoading(false);
-    if (res.ok !== true) {
-      setError(res.error);
-      return;
+    try {
+      const res = await login(email, password);
+      if (res.ok !== true) {
+        setError(res.error);
+        return;
+      }
+      toast.success("Connexion réussie");
+      navigate("/", { replace: true });
+    } finally {
+      setLoading(false);
     }
-    toast.success("Connexion réussie");
-    navigate("/", { replace: true });
   }
 
   return (

@@ -6,6 +6,12 @@ import { PurchaseOrder, distinctSuppliers } from "@/types/purchase-order";
 
 const fmtMoney = (n: number) => new Intl.NumberFormat("fr-FR").format(Math.round(n));
 
+type AutoTableDocument = jsPDF & { lastAutoTable?: { finalY?: number } };
+
+function autoTableFinalY(doc: jsPDF): number {
+  return (doc as AutoTableDocument).lastAutoTable?.finalY ?? 0;
+}
+
 export function exportPurchaseOrderPdf(po: PurchaseOrder) {
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
@@ -40,7 +46,7 @@ export function exportPurchaseOrderPdf(po: PurchaseOrder) {
     ],
   });
 
-  let y = (doc as any).lastAutoTable.finalY + 6;
+  let y = autoTableFinalY(doc) + 6;
 
   // Section a — Prestataires
   const sups = distinctSuppliers(po);
@@ -55,7 +61,7 @@ export function exportPurchaseOrderPdf(po: PurchaseOrder) {
       { content: `● ${s.name}`, styles: { fontStyle: "bold", fillColor: [255, 247, 200] } },
     ]),
   });
-  y = (doc as any).lastAutoTable.finalY + 6;
+  y = autoTableFinalY(doc) + 6;
 
   // Section b — Lignes
   doc.setFont("helvetica", "bold");
@@ -100,7 +106,7 @@ export function exportPurchaseOrderPdf(po: PurchaseOrder) {
     },
   });
 
-  y = (doc as any).lastAutoTable.finalY + 6;
+  y = autoTableFinalY(doc) + 6;
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
