@@ -1,5 +1,5 @@
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   LayoutDashboard,
   History,
@@ -7,13 +7,12 @@ import {
   Inbox,
   LogOut,
   PenLine,
-  // Building2,
-  // ShoppingCart,
   Shield,
   Menu,
   X,
 } from "lucide-react";
 import logo from "@/assets/upowa-logo.jpg";
+import { useDepartmentsStore } from "@/store/departments-store";
 import { useFebStore } from "@/store/feb-store";
 import { useAuthStore } from "@/store/auth-store";
 import { ROLE_LABELS, isValidatorRole, canActOn } from "@/types/feb";
@@ -27,22 +26,95 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const logout = useAuthStore((s) => s.logout);
 
   const febs = useFebStore((s) => s.febs);
-  const ensureUser = useFebStore((s) => s.ensureUserFromAuth);
-  const current = useFebStore((s) => s.getCurrentUser());
+  const fetchFebs = useFebStore((s) => s.fetchFebs);
+  const isLoaded = useFebStore((s) => s.isLoaded);
+  const isLoading = useFebStore((s) => s.isLoading);
+  const sessionUserId = useFebStore((s) => s.sessionUserId);
+  const fetchDepartments = useDepartmentsStore((s) => s.fetchDepartments);
+  const fetchSignatories = useDepartmentsStore((s) => s.fetchSignatories);
+  const signatoriesByDepartment = useDepartmentsStore((s) => s.signatoriesByDepartment);
+  const loadedDepartmentIdsRef = useRef<Set<string>>(new Set());
 
-  // Sync the FEB store's current user with the authenticated user.
   useEffect(() => {
-    if (authUser) ensureUser(authUser);
-  }, [authUser, ensureUser]);
+    if (!authUser) {
+      return;
+    }
+
+    void fetchDepartments().catch(() => undefined);
+    void fetchFebs().catch(() => undefined);
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!febs.length) {
+      return;
+    }
+
+    const pendingDepartments = new Set(
+      febs
+        .filter((feb) => feb.status.startsWith("en_attente") && feb.departmentId)
+        .map((feb) => feb.departmentId as string),
+    );
+
+    for (const departmentId of pendingDepartments) {
+      if (loadedDepartmentIdsRef.current.has(departmentId)) {
+        continue;
+      }
+
+      if (signatoriesByDepartment[departmentId]) {
+        loadedDepartmentIdsRef.current.add(departmentId);
+        continue;
+      }
+
+      void fetchSignatories(departmentId)
+        .then(() => {
+          loadedDepartmentIdsRef.current.add(departmentId);
+        })
+        .catch(() => undefined);
+      }
+  }, [febs, signatoriesByDepartment, fetchSignatories]);
+
+  const waitingForSessionData = Boolean(authUser) && (!isLoaded || sessionUserId !== authUser?.id);
+
+  if (waitingForSessionData) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <p className="text-sm font-medium text-foreground">Chargement des FEB...</p>
+          <p className="text-xs text-muted-foreground">
+            {isLoading ? "Connexion au backend en cours." : "Initialisation de l'espace de travail."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return null;
+  }
+
+  const current = authUser;
 
   const isValidator = isValidatorRole(current.role);
+  const canActAsAssignedSignatory = (departmentId: string | undefined) => {
+    if (!departmentId) {
+      return true;
+    }
+
+    const signatories = signatoriesByDepartment[departmentId];
+    if (!signatories) {
+      return true;
+    }
+
+    return signatories.some(
+      (entry) => entry.role === current.role && entry.userId === current.id,
+    );
+  };
+
   const pendingCount = isValidator
-    ? febs.filter((f) => canActOn(f, current.role)).length
+    ? febs.filter((f) => canActOn(f, current.role) && canActAsAssignedSignatory(f.departmentId)).length
     : 0;
 
-  // Roles that can see purchase orders & suppliers
-  const canSeePOAndSuppliers = current.role === "supply_chain" || current.role === "admin" || current.role === "super_admin";
-  const isSuperAdmin = current.role === "super_admin";
+  const canSeeAdministration = current.role === "admin" || current.role === "super_admin";
 
   const navItems = isValidator
     ? [
@@ -56,14 +128,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         },
         { to: "/historique", label: "Historique FEB", icon: History, end: false },
         { to: "/febs/nouveau", label: "Nouvelle FEB", icon: PlusCircle, end: false },
-        ...(canSeePOAndSuppliers
-          ? [
-              // { to: "/bons-achat", label: "Bons d'Achat", icon: ShoppingCart, end: false },
-              // { to: "/prestataires", label: "Prestataires", icon: Building2, end: false },
-            ]
-          : []),
         { to: "/signature", label: "Ma signature", icon: PenLine, end: false },
-        ...(isSuperAdmin
+        ...(canSeeAdministration
           ? [{ to: "/administration", label: "Administration", icon: Shield, end: false }]
           : []),
       ]

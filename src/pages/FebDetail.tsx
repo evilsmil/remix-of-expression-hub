@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useFebStore, formatXAF } from "@/store/feb-store";
+import { useDepartmentsStore } from "@/store/departments-store";
 import { canActOn, ROLE_LABELS, roleForStatus, RECEIVED_VIA_LABELS, ReceivedVia, deliveryDelta, finalValidationDate, nextPendingStatus } from "@/types/feb";
 import { ReopenFebDialog } from "@/components/ReopenFebDialog";
 import {
@@ -50,6 +51,8 @@ export default function FebDetail() {
   const rejectFeb = useFebStore((s) => s.rejectFeb);
   const updateFeb = useFebStore((s) => s.updateFeb);
   const reopenFeb = useFebStore((s) => s.reopenFeb);
+  const signatoriesByDepartment = useDepartmentsStore((s) => s.signatoriesByDepartment);
+  const fetchSignatories = useDepartmentsStore((s) => s.fetchSignatories);
 
   const [comment, setComment] = useState("");
   const [rejectReason, setRejectReason] = useState("");
@@ -83,6 +86,20 @@ export default function FebDetail() {
   const isOwnerDraft = feb.status === "brouillon" && feb.demandeurId === user.id;
   const canValidate = canActOn(feb, user.role);
   const expectedRole = roleForStatus(feb.status);
+  const expectedSignatory =
+    feb.departmentId && expectedRole
+      ? signatoriesByDepartment[feb.departmentId]?.find((entry) => entry.role === expectedRole)
+      : undefined;
+
+  useEffect(() => {
+    if (!feb.departmentId || !expectedRole) {
+      return;
+    }
+
+    if (!signatoriesByDepartment[feb.departmentId]) {
+      void fetchSignatories(feb.departmentId).catch(() => undefined);
+    }
+  }, [feb.departmentId, expectedRole, signatoriesByDepartment, fetchSignatories]);
 
   const startEditTracking = () => {
     setTrackProjectName(feb.projectName ?? "");
@@ -107,36 +124,72 @@ export default function FebDetail() {
   const valDate = finalValidationDate(feb);
   const delta = deliveryDelta(feb);
 
-  const handleApprove = () => {
-    approveFeb(feb.id, comment.trim() || undefined);
-    setComment("");
-    toast.success("FEB approuvée");
+  const handleApprove = async () => {
+    try {
+      await approveFeb(feb.id, comment.trim() || undefined);
+      setComment("");
+      toast.success("FEB approuvée");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Validation impossible.");
+    }
   };
 
-  const handleReopen = (reason: string) => {
-    reopenFeb(feb.id, reason);
-    toast.success("FEB rouverte pour modification");
+  const handleSubmitDraft = async () => {
+    try {
+      await submitFeb(feb.id);
+      toast.success("FEB soumise pour validation");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Soumission impossible.");
+    }
   };
 
-  const saveTracking = () => {
-    updateFeb(feb.id, {
-      projectName: trackProjectName.trim() || undefined,
-      febDetails: trackFebDetails.trim() || undefined,
-      receivedVia: trackReceivedVia,
-      budgetSpend: trackBudgetSpend || undefined,
-      assignee: trackAssignee.trim() || undefined,
-      historySpend: trackHistorySpend || undefined,
-      poTransmissionDate: poTransmissionDate ? new Date(poTransmissionDate).toISOString() : undefined,
-      procurementLeadDays: procurementLeadDays || undefined,
-      actualDeliveryDate: actualDeliveryDate ? new Date(actualDeliveryDate).toISOString() : undefined,
-      challenges: challenges.trim() || undefined,
-      actionSolutions: actionSolutions.trim() || undefined,
-      actualSpend: actualSpend || undefined,
-      savings: savings.trim() || undefined,
-      receivedDate: trackReceivedDate ? new Date(trackReceivedDate).toISOString() : feb.receivedDate,
-    });
-    setEditingTracking(false);
-    toast.success("Suivi mis à jour");
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      toast.error("Le motif est obligatoire");
+      return;
+    }
+
+    try {
+      await rejectFeb(feb.id, rejectReason.trim());
+      setRejectReason("");
+      toast.success("FEB rejetée");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Rejet impossible.");
+    }
+  };
+
+  const handleReopen = async (reason: string) => {
+    try {
+      await reopenFeb(feb.id, reason);
+      toast.success("FEB rouverte pour modification");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Réouverture impossible.");
+    }
+  };
+
+  const saveTracking = async () => {
+    try {
+      await updateFeb(feb.id, {
+        projectName: trackProjectName.trim() || undefined,
+        febDetails: trackFebDetails.trim() || undefined,
+        receivedVia: trackReceivedVia,
+        budgetSpend: trackBudgetSpend || undefined,
+        assignee: trackAssignee.trim() || undefined,
+        historySpend: trackHistorySpend || undefined,
+        poTransmissionDate: poTransmissionDate ? new Date(poTransmissionDate).toISOString() : undefined,
+        procurementLeadDays: procurementLeadDays || undefined,
+        actualDeliveryDate: actualDeliveryDate ? new Date(actualDeliveryDate).toISOString() : undefined,
+        challenges: challenges.trim() || undefined,
+        actionSolutions: actionSolutions.trim() || undefined,
+        actualSpend: actualSpend || undefined,
+        savings: savings.trim() || undefined,
+        receivedDate: trackReceivedDate ? new Date(trackReceivedDate).toISOString() : feb.receivedDate,
+      });
+      setEditingTracking(false);
+      toast.success("Suivi mis à jour");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Mise à jour du suivi impossible.");
+    }
   };
 
   return (
@@ -375,10 +428,7 @@ export default function FebDetail() {
                     Cette FEB est encore en brouillon. Soumettez-la pour démarrer le circuit de validation.
                   </p>
                   <Button
-                    onClick={() => {
-                      submitFeb(feb.id);
-                      toast.success("FEB soumise pour validation");
-                    }}
+                    onClick={() => void handleSubmitDraft()}
                     className="bg-primary hover:bg-primary-glow"
                   >
                     <Send className="w-4 h-4 mr-2" /> Soumettre pour validation
@@ -391,6 +441,11 @@ export default function FebDetail() {
                   <p className="text-sm text-muted-foreground">
                     En tant que <span className="font-semibold text-foreground">{ROLE_LABELS[user.role]}</span>, vous devez valider ou rejeter cette fiche.
                   </p>
+                  {expectedSignatory && (
+                    <p className="text-xs text-muted-foreground">
+                      Signataire attendu: <span className="font-medium text-foreground">{expectedSignatory.userName}</span> ({expectedSignatory.userEmail})
+                    </p>
+                  )}
                   <Textarea
                     placeholder="Commentaire optionnel pour la validation..."
                     value={comment}
@@ -458,15 +513,7 @@ export default function FebDetail() {
                         <AlertDialogFooter>
                           <AlertDialogCancel onClick={() => setRejectReason("")}>Annuler</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => {
-                              if (!rejectReason.trim()) {
-                                toast.error("Le motif est obligatoire");
-                                return;
-                              }
-                              rejectFeb(feb.id, rejectReason.trim());
-                              setRejectReason("");
-                              toast.success("FEB rejetée");
-                            }}
+                            onClick={() => void handleReject()}
                             className="bg-destructive hover:bg-destructive/90"
                           >
                             Confirmer le rejet
@@ -483,7 +530,13 @@ export default function FebDetail() {
           {!isOwnerDraft && !canValidate && expectedRole && feb.status !== "validee" && feb.status !== "rejetee" && (
             <div className="bg-muted/50 border border-border rounded-xl p-4 text-sm text-muted-foreground">
               En attente de validation par : <span className="font-semibold text-foreground">{ROLE_LABELS[expectedRole]}</span>.
-              Connectez-vous avec ce rôle pour pouvoir agir.
+              {expectedSignatory ? (
+                <>
+                  {" "}Signataire actuel: <span className="font-semibold text-foreground">{expectedSignatory.userName}</span> ({expectedSignatory.userEmail}).
+                </>
+              ) : (
+                " Aucun signataire nominatif n'est encore configuré pour ce département."
+              )}
             </div>
           )}
         </div>
@@ -501,6 +554,12 @@ export default function FebDetail() {
             <MetaRow label="Mise à jour" value={format(new Date(feb.updatedAt), "dd MMM yyyy 'à' HH:mm", { locale: fr })} />
             {feb.receivedDate && <MetaRow label="Reçue le" value={format(new Date(feb.receivedDate), "dd MMM yyyy 'à' HH:mm", { locale: fr })} />}
             <MetaRow label="Validation technique" value={feb.needsTechnicalReview ? "Requise" : "Non requise"} />
+            {expectedRole && (
+              <MetaRow
+                label="Signataire attendu"
+                value={expectedSignatory ? `${expectedSignatory.userName} (${expectedSignatory.userEmail})` : `Non configuré (${ROLE_LABELS[expectedRole]})`}
+              />
+            )}
           </section>
 
           {feb.editLog && feb.editLog.length > 0 && (

@@ -1,325 +1,465 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { API_URL } from "@/lib/api";
+import { useAuthStore } from "@/store/auth-store";
+import { useDepartmentsStore } from "@/store/departments-store";
 import {
-  Feb,
-  FebItem,
-  FebStatus,
-  ReceivedVia,
-  Role,
-  User,
-  nextPendingStatus,
+  type Feb,
+  type FebItem,
+  type FebStatus,
+  type ReceivedVia,
+  type Role,
+  type User,
 } from "@/types/feb";
-import { useSignatureStore } from "@/store/signature-store";
 
-const DEFAULT_USERS: User[] = [
-  { id: "u1", name: "Awa Mbarga", role: "demandeur", department: "Supply Chains and Operations", email: "awa@upowa.com" },
-  { id: "u2", name: "Jean Tchoffo", role: "responsable_technique", department: "Infrastructures", email: "jean@upowa.com" },
-  { id: "u3", name: "Marie Nguemo", role: "responsable_pole", department: "Supply Chains and Operations", email: "marie@upowa.com" },
-  { id: "u4", name: "Paul Kamga", role: "rpaf", department: "Administratif et Financier", email: "paul@upowa.com" },
-  { id: "u5", name: "Sandra Eyenga", role: "supply_chain", department: "Supply Chains and Operations", email: "sandra@upowa.com" },
-  { id: "u6", name: "Admin upöwa", role: "admin", department: "Direction Générale", email: "admin@upowa.com" },
-];
+type ApiRole =
+  | "DEMANDEUR"
+  | "RESPONSABLE_TECHNIQUE"
+  | "RESPONSABLE_POLE"
+  | "RPAF"
+  | "SUPPLY_CHAIN"
+  | "ADMIN"
+  | "SUPER_ADMIN";
 
-function generateNumero(existing: number, departement: string): string {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const seq = String(existing + 1).padStart(3, "0");
-  // Use first 2 letters of department code
-  const dep = departement
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  return `${seq}/${dd}-${mm}-${yyyy}/${dep}`;
+type ApiFebStatus =
+  | "BROUILLON"
+  | "EN_ATTENTE_TECHNIQUE"
+  | "EN_ATTENTE_POLE"
+  | "EN_ATTENTE_RPAF"
+  | "EN_ATTENTE_RECEPTION"
+  | "VALIDEE"
+  | "REJETEE";
+
+type ApiValidationAction = "APPROUVEE" | "REJETEE";
+type ApiSignatureType = "DRAWN" | "TYPED";
+type ApiEditAction = "REOUVERTURE" | "MODIFICATION";
+
+interface ApiValidationStep {
+  role: ApiRole;
+  userName: string;
+  action: ApiValidationAction;
+  comment?: string | null;
+  date: string;
+  signature?: {
+    type: ApiSignatureType;
+    value: string | null;
+  } | null;
+}
+
+interface ApiFebEditLogEntry {
+  date: string;
+  by: string;
+  byEmail?: string | null;
+  action: ApiEditAction;
+  reason: string;
+}
+
+interface ApiFebItem {
+  id: string;
+  designation: string;
+  quantite: number;
+  caracteristiques: string;
+  prixEstime: number;
+  photo?: string;
+}
+
+interface ApiFeb {
+  id: string;
+  numero: string;
+  natureBesoin: string;
+  departmentId?: string;
+  departement: string;
+  demandeurId: string;
+  demandeurName: string;
+  items: ApiFebItem[];
+  totalEstime: number;
+  delaiLivraison: string;
+  fournisseurPotentiel?: string | null;
+  needsTechnicalReview: boolean;
+  status: ApiFebStatus;
+  validations: ApiValidationStep[];
+  createdAt: string;
+  updatedAt: string;
+  receivedDate?: string | null;
+  projectName?: string | null;
+  febDetails?: string | null;
+  receivedVia?: string | null;
+  budgetSpend?: number | null;
+  assignee?: string | null;
+  poTransmissionDate?: string | null;
+  procurementLeadDays?: number | null;
+  actualDeliveryDate?: string | null;
+  challenges?: string | null;
+  actionSolutions?: string | null;
+  historySpend?: number | null;
+  actualSpend?: number | null;
+  savings?: string | null;
+  editLog?: ApiFebEditLogEntry[];
+}
+
+interface CreateFebInput {
+  natureBesoin: string;
+  departement: Feb["departement"];
+  items: FebItem[];
+  delaiLivraison: string;
+  fournisseurPotentiel: string;
+  needsTechnicalReview: boolean;
+  submit: boolean;
 }
 
 interface FebStore {
-  users: User[];
-  currentUserId: string;
   febs: Feb[];
+  isLoading: boolean;
+  isLoaded: boolean;
+  error: string | null;
+  sessionUserId: string | null;
   setCurrentUser: (id: string) => void;
   ensureUserFromAuth: (auth: { email: string; name: string; role: Role }) => void;
   getCurrentUser: () => User;
-  createFeb: (input: {
-    natureBesoin: string;
-    departement: Feb["departement"];
-    items: FebItem[];
-    delaiLivraison: string;
-    fournisseurPotentiel: string;
-    needsTechnicalReview: boolean;
-    submit: boolean;
-  }) => Feb;
-  updateFeb: (id: string, patch: Partial<Feb>) => void;
-  submitFeb: (id: string) => void;
-  approveFeb: (id: string, comment?: string) => void;
-  rejectFeb: (id: string, comment: string) => void;
-  reopenFeb: (id: string, reason: string) => void;
-  deleteFeb: (id: string) => void;
+  fetchFebs: () => Promise<void>;
+  fetchFebById: (id: string) => Promise<Feb>;
+  createFeb: (input: CreateFebInput) => Promise<Feb>;
+  updateFeb: (id: string, patch: Partial<Feb>) => Promise<Feb>;
+  submitFeb: (id: string) => Promise<Feb>;
+  approveFeb: (id: string, comment?: string) => Promise<Feb>;
+  rejectFeb: (id: string, comment: string) => Promise<Feb>;
+  reopenFeb: (id: string, reason: string) => Promise<Feb>;
+  deleteFeb: (id: string) => Promise<void>;
 }
 
-export const useFebStore = create<FebStore>()(
-  persist(
-    (set, get) => ({
-      users: DEFAULT_USERS,
-      currentUserId: DEFAULT_USERS[0].id,
-      febs: seedFebs(DEFAULT_USERS),
-      setCurrentUser: (id) => set({ currentUserId: id }),
-      ensureUserFromAuth: ({ email, name, role }) => {
-        const state = get();
-        const existing = state.users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-        if (existing) {
-          // Keep role in sync (in case mapping changed) and select this user.
-          const updatedUsers =
-            existing.role === role
-              ? state.users
-              : state.users.map((u) => (u.id === existing.id ? { ...u, role } : u));
-          set({ users: updatedUsers, currentUserId: existing.id });
-          return;
-        }
-        const newUser: User = {
-          id: crypto.randomUUID(),
-          name,
-          role,
-          department: "Direction Générale",
-          email,
-        };
-        set({ users: [...state.users, newUser], currentUserId: newUser.id });
-      },
-      getCurrentUser: () => {
-        const s = get();
-        return s.users.find((u) => u.id === s.currentUserId) ?? s.users[0];
-      },
-      createFeb: ({ natureBesoin, departement, items, delaiLivraison, fournisseurPotentiel, needsTechnicalReview, submit }) => {
-        const user = get().getCurrentUser();
-        const totalEstime = items.reduce((acc, it) => acc + (Number(it.prixEstime) || 0), 0);
-        const numero = generateNumero(get().febs.length, departement);
-        const now = new Date().toISOString();
-        const draft: Feb = {
-          id: crypto.randomUUID(),
-          numero,
-          natureBesoin,
-          departement,
-          demandeurId: user.id,
-          demandeurName: user.name,
-          items,
-          totalEstime,
-          delaiLivraison,
-          fournisseurPotentiel,
-          needsTechnicalReview,
-          status: "brouillon",
-          validations: [],
-          createdAt: now,
-          updatedAt: now,
-          receivedDate: now,
-        };
-        const finalFeb: Feb = submit
-          ? { ...draft, status: nextPendingStatus(draft) }
-          : draft;
-        set({ febs: [finalFeb, ...get().febs] });
-        return finalFeb;
-      },
-      updateFeb: (id, patch) =>
-        set({
-          febs: get().febs.map((f) =>
-            f.id === id ? { ...f, ...patch, updatedAt: new Date().toISOString() } : f
-          ),
-        }),
-      submitFeb: (id) =>
-        set({
-          febs: get().febs.map((f) => {
-            if (f.id !== id) return f;
-            return { ...f, status: nextPendingStatus(f), updatedAt: new Date().toISOString() };
-          }),
-        }),
-      approveFeb: (id, comment) => {
-        const user = get().getCurrentUser();
-        const sig = useSignatureStore.getState().getSignature(user.email);
-        set({
-          febs: get().febs.map((f) => {
-            if (f.id !== id) return f;
-            const nextStatus = nextPendingStatus(f);
-            return {
-              ...f,
-              status: nextStatus,
-              validations: [
-                ...f.validations,
-                {
-                  role: user.role,
-                  userName: user.name,
-                  action: "approuvee",
-                  comment,
-                  date: new Date().toISOString(),
-                  signature: sig ? { type: sig.type, value: sig.value } : undefined,
-                },
-              ],
-              updatedAt: new Date().toISOString(),
-            };
-          }),
-        });
-      },
-      rejectFeb: (id, comment) => {
-        const user = get().getCurrentUser();
-        set({
-          febs: get().febs.map((f) => {
-            if (f.id !== id) return f;
-            return {
-              ...f,
-              status: "rejetee" as FebStatus,
-              validations: [
-                ...f.validations,
-                { role: user.role, userName: user.name, action: "rejetee", comment, date: new Date().toISOString() },
-              ],
-              updatedAt: new Date().toISOString(),
-            };
-          }),
-        });
-      },
-      reopenFeb: (id, reason) => {
-        const user = get().getCurrentUser();
-        set({
-          febs: get().febs.map((f) => {
-            if (f.id !== id) return f;
-            const entry = {
-              date: new Date().toISOString(),
-              by: user.name,
-              byEmail: user.email,
-              action: "reouverture" as const,
-              reason,
-            };
-            return {
-              ...f,
-              status: "brouillon" as FebStatus,
-              validations: [],
-              editLog: [...(f.editLog ?? []), entry],
-              updatedAt: new Date().toISOString(),
-            };
-          }),
-        });
-      },
-      deleteFeb: (id) => set({ febs: get().febs.filter((f) => f.id !== id) }),
-    }),
-    { name: "feb-store-v1" }
-  )
-);
+const API_TO_APP_ROLE: Record<ApiRole, Role> = {
+  DEMANDEUR: "demandeur",
+  RESPONSABLE_TECHNIQUE: "responsable_technique",
+  RESPONSABLE_POLE: "responsable_pole",
+  RPAF: "rpaf",
+  SUPPLY_CHAIN: "supply_chain",
+  ADMIN: "admin",
+  SUPER_ADMIN: "super_admin",
+};
 
-function seedFebs(users: User[]): Feb[] {
-  const demandeur = users[0];
-  const now = Date.now();
-  const day = 24 * 3600 * 1000;
-  return [
-    {
-      id: "feb-seed-1",
-      numero: "001/15-04-2025/SC",
-      natureBesoin: "REGUL. ACHAT EAU MINÉRALE DU PERSONNEL",
-      departement: "Supply Chains and Operations",
-      demandeurId: demandeur.id,
-      demandeurName: demandeur.name,
-      items: [
-        { id: "i1", designation: "PALETTE VITAL", quantite: 80, caracteristiques: "1,5 L", prixEstime: 80000 },
-        { id: "i2", designation: "PALETTE SUPERMON", quantite: 10, caracteristiques: "1,5 L", prixEstime: 15000 },
-        { id: "i3", designation: "PALETTE SUPERMON", quantite: 10, caracteristiques: "0,5 cl", prixEstime: 24000 },
-      ],
-      totalEstime: 119000,
-      delaiLivraison: new Date(now + 7 * day).toISOString(),
-      fournisseurPotentiel: "DOVV SARL BASTOS",
-      needsTechnicalReview: false,
-      status: "en_attente_pole",
-      validations: [],
-      createdAt: new Date(now - 2 * day).toISOString(),
-      updatedAt: new Date(now - 2 * day).toISOString(),
-    },
-    {
-      id: "feb-seed-2",
-      numero: "002/12-04-2025/IN",
-      natureBesoin: "Renouvellement matériel informatique",
-      departement: "Systèmes d'Information",
-      demandeurId: demandeur.id,
-      demandeurName: demandeur.name,
-      items: [
-        { id: "i1", designation: "Ordinateur portable Dell Latitude", quantite: 5, caracteristiques: "i7, 16Go RAM, 512Go SSD", prixEstime: 4500000 },
-        { id: "i2", designation: "Écran 27 pouces", quantite: 5, caracteristiques: "Full HD IPS", prixEstime: 750000 },
-      ],
-      totalEstime: 5250000,
-      delaiLivraison: new Date(now + 21 * day).toISOString(),
-      fournisseurPotentiel: "TECH SOLUTIONS CMR",
-      needsTechnicalReview: true,
-      status: "validee",
-      validations: [
-        { role: "responsable_technique", userName: "Jean Tchoffo", action: "approuvee", comment: "Spécifications conformes", date: new Date(now - 8 * day).toISOString() },
-        { role: "responsable_pole", userName: "Marie Nguemo", action: "approuvee", date: new Date(now - 6 * day).toISOString() },
-        { role: "rpaf", userName: "Paul Kamga", action: "approuvee", comment: "Budget validé", date: new Date(now - 4 * day).toISOString() },
-        { role: "supply_chain", userName: "Sandra Eyenga", action: "approuvee", date: new Date(now - 1 * day).toISOString() },
-      ],
-      createdAt: new Date(now - 12 * day).toISOString(),
-      updatedAt: new Date(now - 1 * day).toISOString(),
-    },
-    {
-      id: "feb-seed-3",
-      numero: "003/10-04-2025/QH",
-      natureBesoin: "Équipements de protection individuelle",
-      departement: "QHSE",
-      demandeurId: demandeur.id,
-      demandeurName: demandeur.name,
-      items: [
-        { id: "i1", designation: "Casques de sécurité", quantite: 50, caracteristiques: "Norme EN 397", prixEstime: 250000 },
-        { id: "i2", designation: "Gants de protection", quantite: 100, caracteristiques: "Cuir renforcé", prixEstime: 180000 },
-      ],
-      totalEstime: 430000,
-      delaiLivraison: new Date(now + 14 * day).toISOString(),
-      fournisseurPotentiel: "SAFETY FIRST CMR",
-      needsTechnicalReview: false,
-      status: "en_attente_rpaf",
-      validations: [
-        { role: "responsable_pole", userName: "Marie Nguemo", action: "approuvee", date: new Date(now - 3 * day).toISOString() },
-      ],
-      createdAt: new Date(now - 5 * day).toISOString(),
-      updatedAt: new Date(now - 3 * day).toISOString(),
-    },
-    {
-      id: "feb-seed-4",
-      numero: "004/05-04-2025/CM",
-      natureBesoin: "Goodies événement annuel",
-      departement: "Commercial et Marketing",
-      demandeurId: demandeur.id,
-      demandeurName: demandeur.name,
-      items: [
-        { id: "i1", designation: "T-shirts personnalisés", quantite: 200, caracteristiques: "Coton 180g, logo brodé", prixEstime: 1200000 },
-      ],
-      totalEstime: 1200000,
-      delaiLivraison: new Date(now + 30 * day).toISOString(),
-      fournisseurPotentiel: "PRINT EXPRESS",
-      needsTechnicalReview: false,
-      status: "rejetee",
-      validations: [
-        { role: "responsable_pole", userName: "Marie Nguemo", action: "rejetee", comment: "Hors budget Q2 — à reporter", date: new Date(now - 2 * day).toISOString() },
-      ],
-      createdAt: new Date(now - 10 * day).toISOString(),
-      updatedAt: new Date(now - 2 * day).toISOString(),
-    },
-    {
-      id: "feb-seed-5",
-      numero: "005/18-04-2025/RH",
-      natureBesoin: "Formation cybersécurité",
-      departement: "Ressources Humaines",
-      demandeurId: demandeur.id,
-      demandeurName: demandeur.name,
-      items: [
-        { id: "i1", designation: "Session formation 3 jours", quantite: 1, caracteristiques: "20 participants, certifiante", prixEstime: 3500000 },
-      ],
-      totalEstime: 3500000,
-      delaiLivraison: new Date(now + 45 * day).toISOString(),
-      fournisseurPotentiel: "CYBER ACADEMY",
-      needsTechnicalReview: true,
-      status: "en_attente_technique",
-      validations: [],
-      createdAt: new Date(now - 1 * day).toISOString(),
-      updatedAt: new Date(now - 1 * day).toISOString(),
-    },
-  ];
+const API_TO_APP_STATUS: Record<ApiFebStatus, FebStatus> = {
+  BROUILLON: "brouillon",
+  EN_ATTENTE_TECHNIQUE: "en_attente_technique",
+  EN_ATTENTE_POLE: "en_attente_pole",
+  EN_ATTENTE_RPAF: "en_attente_rpaf",
+  EN_ATTENTE_RECEPTION: "en_attente_reception",
+  VALIDEE: "validee",
+  REJETEE: "rejetee",
+};
+
+const FALLBACK_USER: User = {
+  id: "",
+  name: "Utilisateur",
+  role: "demandeur",
+  department: "Direction Générale",
+  email: "",
+};
+
+function normalizeFileUrl(path?: string | null): string | undefined {
+  if (!path) {
+    return undefined;
+  }
+
+  if (/^https?:\/\//i.test(path) || path.startsWith("data:")) {
+    return path;
+  }
+
+  return `${API_URL}${path}`;
 }
+
+function toValidationAction(action: ApiValidationAction): "approuvee" | "rejetee" {
+  return action === "APPROUVEE" ? "approuvee" : "rejetee";
+}
+
+function toEditAction(action: ApiEditAction): "reouverture" | "modification" {
+  return action === "REOUVERTURE" ? "reouverture" : "modification";
+}
+
+function toSignatureType(type: ApiSignatureType): "drawn" | "typed" {
+  return type === "DRAWN" ? "drawn" : "typed";
+}
+
+function toReceivedVia(value?: string | null): ReceivedVia | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  if (["email", "courrier", "plateforme", "telephone", "autre"].includes(value)) {
+    return value as ReceivedVia;
+  }
+
+  return undefined;
+}
+
+function toFeb(apiFeb: ApiFeb): Feb {
+  return {
+    id: apiFeb.id,
+    numero: apiFeb.numero,
+    natureBesoin: apiFeb.natureBesoin,
+    departmentId: apiFeb.departmentId,
+    departement: apiFeb.departement as Feb["departement"],
+    demandeurId: apiFeb.demandeurId,
+    demandeurName: apiFeb.demandeurName,
+    items: apiFeb.items.map((item) => ({
+      id: item.id,
+      designation: item.designation,
+      quantite: item.quantite,
+      caracteristiques: item.caracteristiques,
+      prixEstime: Number(item.prixEstime),
+      photo: normalizeFileUrl(item.photo),
+    })),
+    totalEstime: Number(apiFeb.totalEstime),
+    delaiLivraison: apiFeb.delaiLivraison,
+    fournisseurPotentiel: apiFeb.fournisseurPotentiel ?? "",
+    needsTechnicalReview: apiFeb.needsTechnicalReview,
+    status: API_TO_APP_STATUS[apiFeb.status],
+    validations: apiFeb.validations.map((validation) => ({
+      role: API_TO_APP_ROLE[validation.role],
+      userName: validation.userName,
+      action: toValidationAction(validation.action),
+      comment: validation.comment ?? undefined,
+      date: validation.date,
+      signature: validation.signature?.value
+        ? {
+            type: toSignatureType(validation.signature.type),
+            value: normalizeFileUrl(validation.signature.value) ?? validation.signature.value,
+          }
+        : undefined,
+    })),
+    createdAt: apiFeb.createdAt,
+    updatedAt: apiFeb.updatedAt,
+    receivedDate: apiFeb.receivedDate ?? undefined,
+    projectName: apiFeb.projectName ?? undefined,
+    febDetails: apiFeb.febDetails ?? undefined,
+    receivedVia: toReceivedVia(apiFeb.receivedVia),
+    budgetSpend: apiFeb.budgetSpend ?? undefined,
+    assignee: apiFeb.assignee ?? undefined,
+    poTransmissionDate: apiFeb.poTransmissionDate ?? undefined,
+    procurementLeadDays: apiFeb.procurementLeadDays ?? undefined,
+    actualDeliveryDate: apiFeb.actualDeliveryDate ?? undefined,
+    challenges: apiFeb.challenges ?? undefined,
+    actionSolutions: apiFeb.actionSolutions ?? undefined,
+    historySpend: apiFeb.historySpend ?? undefined,
+    actualSpend: apiFeb.actualSpend ?? undefined,
+    savings: apiFeb.savings ?? undefined,
+    editLog: apiFeb.editLog?.map((entry) => ({
+      date: entry.date,
+      by: entry.by,
+      byEmail: entry.byEmail ?? undefined,
+      action: toEditAction(entry.action),
+      reason: entry.reason,
+    })),
+  };
+}
+
+function mapError(payload: unknown): string {
+  if (typeof payload === "object" && payload !== null) {
+    const candidate = payload as { message?: string | string[] };
+    if (typeof candidate.message === "string") {
+      return candidate.message;
+    }
+    if (Array.isArray(candidate.message)) {
+      return candidate.message.join(" ");
+    }
+  }
+
+  return "Requête FEB refusée par le serveur.";
+}
+
+async function febRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const { accessToken } = useAuthStore.getState();
+
+  if (!accessToken) {
+    throw new Error("Session expirée. Veuillez vous reconnecter.");
+  }
+
+  const headers = new Headers(init.headers ?? {});
+  headers.set("Authorization", `Bearer ${accessToken}`);
+
+  if (!(init.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers,
+  });
+
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(mapError(payload));
+  }
+
+  return payload as T;
+}
+
+function upsertFeb(febs: Feb[], feb: Feb): Feb[] {
+  const index = febs.findIndex((item) => item.id === feb.id);
+  if (index === -1) {
+    return [feb, ...febs];
+  }
+
+  return febs.map((item) => (item.id === feb.id ? feb : item));
+}
+
+function currentUserFromAuth(): User {
+  const authUser = useAuthStore.getState().user;
+
+  if (!authUser) {
+    return FALLBACK_USER;
+  }
+
+  return {
+    id: authUser.id,
+    name: authUser.name,
+    role: authUser.role,
+    department: FALLBACK_USER.department,
+    email: authUser.email,
+  };
+}
+
+export const useFebStore = create<FebStore>()((set, get) => ({
+  febs: [],
+  isLoading: false,
+  isLoaded: false,
+  error: null,
+  sessionUserId: null,
+  setCurrentUser: () => undefined,
+  ensureUserFromAuth: () => undefined,
+  getCurrentUser: () => currentUserFromAuth(),
+  fetchFebs: async () => {
+    const sessionUserId = useAuthStore.getState().user?.id ?? null;
+    set({ isLoading: true, error: null });
+
+    try {
+      const febs = await febRequest<ApiFeb[]>("/feb", { method: "GET" });
+      set({ febs: febs.map(toFeb), isLoaded: true, sessionUserId });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : "Chargement des FEB impossible.",
+        isLoaded: true,
+        sessionUserId,
+      });
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+  fetchFebById: async (id) => {
+    const feb = toFeb(await febRequest<ApiFeb>(`/feb/${id}`, { method: "GET" }));
+    set((state) => ({ febs: upsertFeb(state.febs, feb) }));
+    return feb;
+  },
+  createFeb: async (input) => {
+    const departmentId = useDepartmentsStore.getState().findDepartmentIdByName(input.departement);
+    const feb = toFeb(
+      await febRequest<ApiFeb>("/feb", {
+        method: "POST",
+        body: JSON.stringify({
+          natureBesoin: input.natureBesoin,
+          departmentId,
+          departement: input.departement,
+          items: input.items.map((item) => ({
+            designation: item.designation,
+            quantite: item.quantite,
+            caracteristiques: item.caracteristiques,
+            prixEstime: item.prixEstime,
+            photo: item.photo,
+          })),
+          delaiLivraison: input.delaiLivraison,
+          fournisseurPotentiel: input.fournisseurPotentiel,
+          needsTechnicalReview: input.needsTechnicalReview,
+          submit: input.submit,
+        }),
+      }),
+    );
+
+    set((state) => ({ febs: upsertFeb(state.febs, feb) }));
+    return feb;
+  },
+  updateFeb: async (id, patch) => {
+    const departmentId = patch.departement
+      ? useDepartmentsStore.getState().findDepartmentIdByName(patch.departement)
+      : undefined;
+
+    const feb = toFeb(
+      await febRequest<ApiFeb>(`/feb/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          natureBesoin: patch.natureBesoin,
+          departmentId,
+          departement: patch.departement,
+          items: patch.items?.map((item) => ({
+            designation: item.designation,
+            quantite: item.quantite,
+            caracteristiques: item.caracteristiques,
+            prixEstime: item.prixEstime,
+            photo: item.photo,
+          })),
+          delaiLivraison: patch.delaiLivraison,
+          fournisseurPotentiel: patch.fournisseurPotentiel,
+          needsTechnicalReview: patch.needsTechnicalReview,
+          receivedDate: patch.receivedDate,
+          projectName: patch.projectName,
+          febDetails: patch.febDetails,
+          receivedVia: patch.receivedVia,
+          budgetSpend: patch.budgetSpend,
+          assignee: patch.assignee,
+          historySpend: patch.historySpend,
+          poTransmissionDate: patch.poTransmissionDate,
+          procurementLeadDays: patch.procurementLeadDays,
+          actualDeliveryDate: patch.actualDeliveryDate,
+          challenges: patch.challenges,
+          actionSolutions: patch.actionSolutions,
+          actualSpend: patch.actualSpend,
+          savings: patch.savings,
+        }),
+      }),
+    );
+
+    set((state) => ({ febs: upsertFeb(state.febs, feb) }));
+    return feb;
+  },
+  submitFeb: async (id) => {
+    const feb = toFeb(await febRequest<ApiFeb>(`/feb/${id}/submit`, { method: "PATCH" }));
+    set((state) => ({ febs: upsertFeb(state.febs, feb) }));
+    return feb;
+  },
+  approveFeb: async (id, comment) => {
+    const feb = toFeb(
+      await febRequest<ApiFeb>(`/feb/${id}/approve`, {
+        method: "PATCH",
+        body: JSON.stringify({ comment }),
+      }),
+    );
+    set((state) => ({ febs: upsertFeb(state.febs, feb) }));
+    return feb;
+  },
+  rejectFeb: async (id, comment) => {
+    const feb = toFeb(
+      await febRequest<ApiFeb>(`/feb/${id}/reject`, {
+        method: "PATCH",
+        body: JSON.stringify({ comment }),
+      }),
+    );
+    set((state) => ({ febs: upsertFeb(state.febs, feb) }));
+    return feb;
+  },
+  reopenFeb: async (id, reason) => {
+    const feb = toFeb(
+      await febRequest<ApiFeb>(`/feb/${id}/reopen`, {
+        method: "PATCH",
+        body: JSON.stringify({ reason }),
+      }),
+    );
+    set((state) => ({ febs: upsertFeb(state.febs, feb) }));
+    return feb;
+  },
+  deleteFeb: async (id) => {
+    await febRequest<{ ok: true }>(`/feb/${id}`, { method: "DELETE" });
+    set((state) => ({ febs: state.febs.filter((item) => item.id !== id) }));
+  },
+}));
 
 export function formatXAF(n: number): string {
   return new Intl.NumberFormat("fr-FR").format(n) + " FCFA";

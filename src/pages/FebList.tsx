@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { useDepartmentsStore } from "@/store/departments-store";
 import { useFebStore, formatXAF } from "@/store/feb-store";
-import { DEPARTMENTS, FebStatus, STATUS_LABELS } from "@/types/feb";
+import { FebStatus, STATUS_LABELS } from "@/types/feb";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Search, Plus, FileText } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ const STATUSES: ("all" | FebStatus)[] = [
 
 export default function FebList() {
   const febs = useFebStore((s) => s.febs);
+  const departments = useDepartmentsStore((s) => s.getDepartmentNames());
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [dept, setDept] = useState<string>("all");
@@ -89,7 +91,7 @@ export default function FebList() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous les départements</SelectItem>
-            {DEPARTMENTS.map((d) => (
+            {departments.map((d) => (
               <SelectItem key={d} value={d}>{d}</SelectItem>
             ))}
           </SelectContent>

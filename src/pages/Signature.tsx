@@ -1,46 +1,169 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import { PenLine, Type, Trash2, Save, CheckCircle2, Upload, Image as ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/store/auth-store";
-import { useSignatureStore } from "@/store/signature-store";
 import { fileToCompressedDataUrl } from "@/lib/image-utils";
+import { API_URL } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 type Mode = "drawn" | "typed" | "upload";
+type ApiSignatureType = "DRAWN" | "TYPED";
+
+interface ApiSignature {
+  id: string;
+  type: ApiSignatureType;
+  value: string | null;
+  imageId: string | null;
+  updatedAt: string;
+}
+
+interface StoredSignature {
+  type: "drawn" | "typed";
+  value: string;
+  updatedAt: string;
+}
+
+function normalizeAssetUrl(value: string | null): string {
+  if (!value) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(value) || value.startsWith("data:")) {
+    return value;
+  }
+  return `${API_URL}${value}`;
+}
+
+function toStoredSignature(signature: ApiSignature): StoredSignature | null {
+  if (signature.type === "TYPED") {
+    return {
+      type: "typed",
+      value: signature.value ?? "",
+      updatedAt: signature.updatedAt,
+    };
+  }
+
+  const value = normalizeAssetUrl(signature.value);
+  if (!value) {
+    return null;
+  }
+
+  return {
+    type: "drawn",
+    value,
+    updatedAt: signature.updatedAt,
+  };
+}
+
+function mapError(payload: unknown): string {
+  if (typeof payload === "object" && payload !== null) {
+    const candidate = payload as { message?: string | string[] };
+    if (typeof candidate.message === "string") {
+      return candidate.message;
+    }
+    if (Array.isArray(candidate.message)) {
+      return candidate.message.join(" ");
+    }
+  }
+
+  return "Requete signature refusee par le serveur.";
+}
+
+async function signatureRequest<T>(
+  path: string,
+  init: RequestInit,
+  accessToken: string,
+): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+      ...init.headers,
+    },
+  });
+
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(mapError(payload));
+  }
+
+  return payload as T;
+}
 
 export default function Signature() {
-  const user = useAuthStore((s) => s.user)!;
-  const existing = useSignatureStore((s) => s.getSignature(user.email));
-  const setSignature = useSignatureStore((s) => s.setSignature);
-  const clearSignature = useSignatureStore((s) => s.clearSignature);
+  const user = useAuthStore((s) => s.user);
+  const accessToken = useAuthStore((s) => s.accessToken);
 
-  const [mode, setMode] = useState<Mode>(existing?.type ?? "drawn");
-  const [typedName, setTypedName] = useState(
-    existing?.type === "typed" ? existing.value : user.name
-  );
-  const [uploadedDataUrl, setUploadedDataUrl] = useState<string | null>(
-    existing?.type === "drawn" ? existing.value : null
-  );
+  const [existing, setExisting] = useState<StoredSignature | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [mode, setMode] = useState<Mode>("drawn");
+  const [typedName, setTypedName] = useState(user?.name ?? "");
+  const [uploadedDataUrl, setUploadedDataUrl] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const drawingRef = useRef(false);
   const [hasDrawing, setHasDrawing] = useState(false);
 
-  // Initialize canvas (DPI-aware) and restore existing drawn signature
+  useEffect(() => {
+    if (!accessToken || !user) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadSignature() {
+      setLoading(true);
+      try {
+        const response = await signatureRequest<ApiSignature | null>(
+          "/signatures/me",
+          { method: "GET" },
+          accessToken,
+        );
+        if (cancelled) {
+          return;
+        }
+
+        const normalized = response ? toStoredSignature(response) : null;
+        setExisting(normalized);
+        setMode(normalized?.type === "typed" ? "typed" : "drawn");
+        setTypedName(normalized?.type === "typed" ? normalized.value : user.name);
+        setUploadedDataUrl(normalized?.type === "drawn" ? normalized.value : null);
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(error instanceof Error ? error.message : "Impossible de charger la signature.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void loadSignature();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, user]);
+
   useEffect(() => {
     if (mode !== "drawn") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
+
     const ratio = window.devicePixelRatio || 1;
     const cssW = canvas.clientWidth;
     const cssH = canvas.clientHeight;
     canvas.width = cssW * ratio;
     canvas.height = cssH * ratio;
+
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
     ctx.scale(ratio, ratio);
     ctx.lineWidth = 2;
     ctx.lineCap = "round";
@@ -48,16 +171,18 @@ export default function Signature() {
     ctx.strokeStyle = "#0f172a";
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, cssW, cssH);
+    setHasDrawing(false);
 
-    if (existing?.type === "drawn") {
+    const source = uploadedDataUrl ?? (existing?.type === "drawn" ? existing.value : null);
+    if (source) {
       const img = new Image();
       img.onload = () => {
         ctx.drawImage(img, 0, 0, cssW, cssH);
         setHasDrawing(true);
       };
-      img.src = existing.value;
+      img.src = source;
     }
-  }, [mode, existing]);
+  }, [mode, uploadedDataUrl, existing]);
 
   function pointerPos(e: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current!;
@@ -72,6 +197,7 @@ export default function Signature() {
     ctx.beginPath();
     ctx.moveTo(x, y);
   }
+
   function moveDraw(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!drawingRef.current) return;
     const ctx = canvasRef.current!.getContext("2d")!;
@@ -80,6 +206,7 @@ export default function Signature() {
     ctx.stroke();
     setHasDrawing(true);
   }
+
   function endDraw() {
     drawingRef.current = false;
   }
@@ -97,62 +224,98 @@ export default function Signature() {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      // PNG output preserves transparency for clean signatures
       const dataUrl = await fileToCompressedDataUrl(file, 1000, "image/png", 0.9);
       setUploadedDataUrl(dataUrl);
-      toast.success("Image chargée — n'oubliez pas d'enregistrer");
+      setMode("upload");
+      toast.success("Image chargee. Cliquez sur Enregistrer pour valider.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Échec du chargement de l'image");
+      toast.error(err instanceof Error ? err.message : "Echec du chargement de l'image");
     } finally {
-      // allow re-selecting the same file
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
-  function handleSave() {
-    if (mode === "drawn") {
-      if (!hasDrawing) {
-        toast.error("Veuillez d'abord dessiner votre signature.");
+  async function handleSave() {
+    if (!accessToken || !user) {
+      toast.error("Session expiree. Veuillez vous reconnecter.");
+      return;
+    }
+
+    try {
+      if (mode === "typed") {
+        const name = typedName.trim();
+        if (!name) {
+          toast.error("Le nom ne peut pas etre vide.");
+          return;
+        }
+
+        const response = await signatureRequest<ApiSignature>(
+          "/signatures/me",
+          {
+            method: "PUT",
+            body: JSON.stringify({ type: "TYPED", value: name }),
+          },
+          accessToken,
+        );
+        setExisting(toStoredSignature(response));
+        toast.success("Signature enregistree");
         return;
       }
-      const dataUrl = canvasRef.current!.toDataURL("image/png");
-      setSignature(user.email, {
-        type: "drawn",
-        value: dataUrl,
-        updatedAt: new Date().toISOString(),
-      });
-      toast.success("Signature enregistrée");
-    } else if (mode === "upload") {
-      if (!uploadedDataUrl) {
-        toast.error("Veuillez d'abord importer une image.");
+
+      const drawnValue =
+        mode === "upload"
+          ? uploadedDataUrl
+          : hasDrawing
+            ? canvasRef.current?.toDataURL("image/png")
+            : undefined;
+
+      if (!drawnValue) {
+        toast.error("Veuillez dessiner ou importer une signature.");
         return;
       }
-      setSignature(user.email, {
-        type: "drawn", // stored & rendered the same way as a drawn signature
-        value: uploadedDataUrl,
-        updatedAt: new Date().toISOString(),
-      });
-      toast.success("Signature enregistrée");
-    } else {
-      const name = typedName.trim();
-      if (!name) {
-        toast.error("Le nom ne peut pas être vide.");
-        return;
-      }
-      setSignature(user.email, {
-        type: "typed",
-        value: name,
-        updatedAt: new Date().toISOString(),
-      });
-      toast.success("Signature enregistrée");
+
+      const response = await signatureRequest<ApiSignature>(
+        "/signatures/me",
+        {
+          method: "PUT",
+          body: JSON.stringify({ type: "DRAWN", value: drawnValue }),
+        },
+        accessToken,
+      );
+      const normalized = toStoredSignature(response);
+      setExisting(normalized);
+      setUploadedDataUrl(normalized?.type === "drawn" ? normalized.value : null);
+      setMode("drawn");
+      toast.success("Signature enregistree");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Enregistrement de la signature impossible.");
     }
   }
 
-  function handleDelete() {
-    clearSignature(user.email);
-    handleClear();
-    setUploadedDataUrl(null);
-    toast.success("Signature supprimée");
+  async function handleDelete() {
+    if (!accessToken) {
+      toast.error("Session expiree. Veuillez vous reconnecter.");
+      return;
+    }
+
+    try {
+      await signatureRequest<{ ok: true }>(
+        "/signatures/me",
+        { method: "DELETE" },
+        accessToken,
+      );
+      setExisting(null);
+      setUploadedDataUrl(null);
+      setMode("drawn");
+      handleClear();
+      toast.success("Signature supprimee");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Suppression de la signature impossible.");
+    }
+  }
+
+  if (!user) {
+    return null;
   }
 
   return (
@@ -162,23 +325,28 @@ export default function Signature() {
           Ma signature
         </h1>
         <p className="text-sm text-muted-foreground mt-1.5">
-          Configurez votre signature personnelle. Elle sera apposée automatiquement
+          Configurez votre signature personnelle. Elle sera apposee automatiquement
           sur chaque FEB que vous validez.
         </p>
       </header>
+
+      {loading && (
+        <div className="mb-6 rounded-lg border border-border px-4 py-3 text-sm text-muted-foreground">
+          Chargement de la signature...
+        </div>
+      )}
 
       {existing && (
         <div className="mb-6 rounded-lg border border-success/30 bg-success-soft/40 px-4 py-3 flex items-center gap-2 text-sm">
           <CheckCircle2 className="w-4 h-4 text-success" />
           <span className="text-foreground">
-            Signature configurée — dernière mise à jour le{" "}
+            Signature configuree — derniere mise a jour le{" "}
             {new Date(existing.updatedAt).toLocaleDateString("fr-FR")}
           </span>
         </div>
       )}
 
       <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-        {/* Mode tabs */}
         <div className="flex gap-2 mb-6 bg-muted/50 p-1 rounded-lg w-fit">
           {([
             { value: "drawn", label: "Dessiner", icon: PenLine },
@@ -195,7 +363,7 @@ export default function Signature() {
                   "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
                   mode === tab.value
                     ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -239,7 +407,7 @@ export default function Signature() {
               <div className="rounded-lg border border-border bg-white p-4 flex flex-col items-center gap-3">
                 <img
                   src={uploadedDataUrl}
-                  alt="Aperçu de la signature"
+                  alt="Apercu de la signature"
                   className="max-h-40 object-contain"
                 />
                 <div className="flex gap-2">
@@ -273,7 +441,7 @@ export default function Signature() {
                 <p className="text-sm font-medium text-foreground">
                   Cliquez pour choisir une image
                 </p>
-                <p className="text-xs">PNG ou JPG, fond blanc ou transparent recommandé</p>
+                <p className="text-xs">PNG ou JPG, fond blanc ou transparent recommande</p>
               </button>
             )}
 
@@ -284,18 +452,13 @@ export default function Signature() {
               className="hidden"
               onChange={handleFileChange}
             />
-
-            <p className="text-[11px] text-muted-foreground">
-              💡 Pour un meilleur rendu, utilisez une image avec fond transparent (PNG)
-              ou une signature noire sur fond blanc.
-            </p>
           </div>
         )}
 
         {mode === "typed" && (
           <div className="space-y-3">
             <label className="text-xs font-medium text-foreground">
-              Nom à apposer en signature
+              Nom a apposer en signature
             </label>
             <Input
               value={typedName}
@@ -303,7 +466,7 @@ export default function Signature() {
               placeholder="Votre nom complet"
             />
             <div className="rounded-lg border border-border bg-white p-6 text-center">
-              <p className="text-xs text-muted-foreground mb-2">Aperçu</p>
+              <p className="text-xs text-muted-foreground mb-2">Apercu</p>
               <p
                 className="text-2xl text-foreground"
                 style={{ fontFamily: "'Brush Script MT', cursive" }}
@@ -316,14 +479,14 @@ export default function Signature() {
 
         <div className="flex items-center justify-between gap-2 mt-6 pt-5 border-t border-border">
           {existing ? (
-            <Button type="button" variant="ghost" size="sm" onClick={handleDelete}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => void handleDelete()}>
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />
               Supprimer
             </Button>
           ) : (
             <span />
           )}
-          <Button type="button" onClick={handleSave}>
+          <Button type="button" onClick={() => void handleSave()}>
             <Save className="w-4 h-4 mr-1.5" />
             Enregistrer la signature
           </Button>
@@ -331,8 +494,7 @@ export default function Signature() {
       </div>
 
       <p className="text-xs text-muted-foreground mt-4">
-        💡 Votre signature est stockée localement et chiffrée dans votre navigateur.
-        Elle sera intégrée automatiquement au PDF des FEB que vous validez.
+        Votre signature est stockee cote serveur et utilisee automatiquement lors des validations FEB.
       </p>
     </div>
   );

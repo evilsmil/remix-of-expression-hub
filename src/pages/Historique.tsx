@@ -5,8 +5,9 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import * as XLSX from "xlsx";
 import type { DateRange } from "react-day-picker";
+import { useDepartmentsStore } from "@/store/departments-store";
 import { useFebStore, formatXAF } from "@/store/feb-store";
-import { isValidatorRole, DEPARTMENTS, FebStatus, STATUS_LABELS, RECEIVED_VIA_LABELS, ROLE_LABELS } from "@/types/feb";
+import { isValidatorRole, FebStatus, STATUS_LABELS, RECEIVED_VIA_LABELS, ROLE_LABELS } from "@/types/feb";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +34,7 @@ const STATUSES: ("all" | FebStatus)[] = [
 export default function Historique() {
   const allFebs = useFebStore((s) => s.febs);
   const user = useFebStore((s) => s.getCurrentUser());
+  const departments = useDepartmentsStore((s) => s.getDepartmentNames());
   const isValidator = isValidatorRole(user.role);
 
   // Demandeur sees only their own FEB; validateurs see everything.
@@ -153,7 +155,7 @@ export default function Historique() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tous départements</SelectItem>
-            {DEPARTMENTS.map((d) => (
+            {departments.map((d) => (
               <SelectItem key={d} value={d}>
                 {d}
               </SelectItem>

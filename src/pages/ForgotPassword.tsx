@@ -5,18 +5,34 @@ import logo from "@/assets/upowa-logo.jpg";
 import { useAuthStore } from "@/store/auth-store";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export default function ForgotPassword() {
   const user = useAuthStore((s) => s.user);
+  const requestPasswordReset = useAuthStore((s) => s.requestPasswordReset);
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    // Demo: no real email sending, just show confirmation
-    setSubmitted(true);
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await requestPasswordReset(email);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+
+      setSubmitted(true);
+      toast.success("Lien de réinitialisation envoyé");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -56,11 +72,16 @@ export default function ForgotPassword() {
                   />
                 </div>
 
-                <Button type="submit" className="w-full" disabled={!email}>
+                <Button type="submit" className="w-full" disabled={!email || loading}>
                   <Mail className="w-4 h-4 mr-1.5" />
-                  Envoyer le lien
+                  {loading ? "Envoi..." : "Envoyer le lien"}
                 </Button>
               </form>
+              {error && (
+                <div className="text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-md px-3 py-2 mt-4">
+                  {error}
+                </div>
+              )}
             </>
           ) : (
             <div className="text-center py-4">

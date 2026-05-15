@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useDepartmentsStore } from "@/store/departments-store";
 import { useFebStore, formatXAF } from "@/store/feb-store";
-import { DEPARTMENTS, Department, FebItem } from "@/types/feb";
+import { Department, FebItem } from "@/types/feb";
 import { Trash2, Plus, Save, Send, ArrowLeft, ImagePlus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,9 +23,10 @@ export default function FebCreate() {
   const navigate = useNavigate();
   const createFeb = useFebStore((s) => s.createFeb);
   const user = useFebStore((s) => s.getCurrentUser());
+  const departments = useDepartmentsStore((s) => s.getDepartmentNames());
 
   const [natureBesoin, setNatureBesoin] = useState("");
-  const [departement, setDepartement] = useState<Department>(user.department);
+  const [departement, setDepartement] = useState<Department>(user.department || "");
   const [delaiLivraison, setDelaiLivraison] = useState("");
   const [fournisseur, setFournisseur] = useState("");
   const [needsTechnicalReview, setNeedsTechnicalReview] = useState(false);
@@ -52,23 +54,27 @@ export default function FebCreate() {
     }
   };
 
-  const handleSubmit = (submit: boolean) => {
+  const handleSubmit = async (submit: boolean) => {
     if (!natureBesoin.trim()) return toast.error("La nature du besoin est obligatoire.");
     if (!delaiLivraison) return toast.error("Le délai de livraison est obligatoire.");
     if (items.some((it) => !it.designation.trim() || it.quantite <= 0)) {
       return toast.error("Chaque article doit avoir une désignation et une quantité positive.");
     }
-    const feb = createFeb({
-      natureBesoin: natureBesoin.trim(),
-      departement,
-      items,
-      delaiLivraison: new Date(delaiLivraison).toISOString(),
-      fournisseurPotentiel: fournisseur.trim() || "—",
-      needsTechnicalReview,
-      submit,
-    });
-    toast.success(submit ? `FEB ${feb.numero} soumise pour validation` : `FEB ${feb.numero} enregistrée en brouillon`);
-    navigate(`/febs/${feb.id}`);
+    try {
+      const feb = await createFeb({
+        natureBesoin: natureBesoin.trim(),
+        departement,
+        items,
+        delaiLivraison: new Date(delaiLivraison).toISOString(),
+        fournisseurPotentiel: fournisseur.trim() || "—",
+        needsTechnicalReview,
+        submit,
+      });
+      toast.success(submit ? `FEB ${feb.numero} soumise pour validation` : `FEB ${feb.numero} enregistrée en brouillon`);
+      navigate(`/febs/${feb.id}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Création de la FEB impossible.");
+    }
   };
 
   return (
@@ -107,7 +113,7 @@ export default function FebCreate() {
             <Select value={departement} onValueChange={(v) => setDepartement(v as Department)}>
               <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {DEPARTMENTS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                {departments.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -230,10 +236,10 @@ export default function FebCreate() {
 
       {/* Actions */}
       <div className="flex flex-col sm:flex-row gap-3 justify-end">
-        <Button type="button" variant="outline" onClick={() => handleSubmit(false)}>
+        <Button type="button" variant="outline" onClick={() => void handleSubmit(false)}>
           <Save className="w-4 h-4 mr-2" /> Enregistrer en brouillon
         </Button>
-        <Button type="button" onClick={() => handleSubmit(true)} className="bg-primary hover:bg-primary-glow">
+        <Button type="button" onClick={() => void handleSubmit(true)} className="bg-primary hover:bg-primary-glow">
           <Send className="w-4 h-4 mr-2" /> Soumettre pour validation
         </Button>
       </div>

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Inbox, Filter } from "lucide-react";
+import { useDepartmentsStore } from "@/store/departments-store";
 import { useFebStore } from "@/store/feb-store";
-import { canActOn, pendingDays, DEPARTMENTS } from "@/types/feb";
+import { canActOn, pendingDays, roleForStatus } from "@/types/feb";
 import { ValidationQueue } from "@/components/dashboard/ValidationQueue";
 import { LateAlerts } from "@/components/dashboard/LateAlerts";
 import {
@@ -15,21 +16,105 @@ import {
 export default function Validation() {
   const febs = useFebStore((s) => s.febs);
   const user = useFebStore((s) => s.getCurrentUser());
-  const [scope, setScope] = useState<"mine" | "all_pending">("mine");
+  const departments = useDepartmentsStore((s) => s.getDepartmentNames());
+  const signatoriesByDepartment = useDepartmentsStore((s) => s.signatoriesByDepartment);
+  const fetchSignatories = useDepartmentsStore((s) => s.fetchSignatories);
+  const [scope, setScope] = useState<"mine" | "all_pending" | "missing_signatory">("mine");
   const [dept, setDept] = useState<string>("all");
 
+  useEffect(() => {
+    const pendingDepartments = Array.from(
+      new Set(
+        febs
+          .filter((feb) => feb.status.startsWith("en_attente") && feb.departmentId)
+          .map((feb) => feb.departmentId as string),
+      ),
+    );
+
+    for (const departmentId of pendingDepartments) {
+      if (!signatoriesByDepartment[departmentId]) {
+        void fetchSignatories(departmentId).catch(() => undefined);
+      }
+    }
+  }, [febs, signatoriesByDepartment, fetchSignatories]);
+
+  const canActAsAssignedSignatory = (departmentId: string | undefined) => {
+    if (!departmentId) {
+      return true;
+    }
+
+    const signatories = signatoriesByDepartment[departmentId];
+    if (!signatories) {
+      return true;
+    }
+
+    return signatories.some(
+      (entry) => entry.role === user.role && entry.userId === user.id,
+    );
+  };
+
+  const getSignatoryStatus = (feb: (typeof febs)[number]) => {
+    const expectedRole = roleForStatus(feb.status);
+    if (!expectedRole) {
+      return null;
+    }
+
+    if (!feb.departmentId) {
+      return {
+        state: "missing" as const,
+        message: "Signataire non configure",
+      };
+    }
+
+    const signatories = signatoriesByDepartment[feb.departmentId];
+    if (!signatories) {
+      return {
+        state: "loading" as const,
+        message: "Signataire en chargement",
+      };
+    }
+
+    const expectedSignatory = signatories.find((entry) => entry.role === expectedRole);
+    if (!expectedSignatory) {
+      return {
+        state: "missing" as const,
+        message: "Signataire non configure",
+      };
+    }
+
+    return {
+      state: "ok" as const,
+      message: `${expectedSignatory.userName} (${expectedSignatory.userEmail})`,
+    };
+  };
+
   const queue = useMemo(() => {
-    const base =
-      scope === "mine"
-        ? febs.filter((f) => canActOn(f, user.role))
-        : febs.filter((f) => f.status.startsWith("en_attente"));
+    const base = febs.filter((f) => {
+      if (scope === "mine") {
+        return canActOn(f, user.role) && canActAsAssignedSignatory(f.departmentId);
+      }
+
+      if (scope === "missing_signatory") {
+        if (!f.status.startsWith("en_attente")) {
+          return false;
+        }
+
+        const status = getSignatoryStatus(f);
+        return status?.state === "missing";
+      }
+
+      return f.status.startsWith("en_attente");
+    });
+
     return base
       .filter((f) => (dept === "all" ? true : f.departement === dept))
       .sort((a, b) => pendingDays(b) - pendingDays(a));
-  }, [febs, user.role, scope, dept]);
+  }, [febs, user.role, scope, dept, signatoriesByDepartment]);
 
-  const mineCount = febs.filter((f) => canActOn(f, user.role)).length;
+  const mineCount = febs.filter((f) => canActOn(f, user.role) && canActAsAssignedSignatory(f.departmentId)).length;
   const allPendingCount = febs.filter((f) => f.status.startsWith("en_attente")).length;
+
+  const missingSignatoryCount = febs.filter((f) => f.status.startsWith("en_attente") && getSignatoryStatus(f)?.state === "missing").length;
 
   return (
     <div className="space-y-6 max-w-5xl">
@@ -58,6 +143,9 @@ export default function Validation() {
             <SelectItem value="all_pending">
               Tout le circuit en cours ({allPendingCount})
             </SelectItem>
+            <SelectItem value="missing_signatory">
+              Sans signataire configuré ({missingSignatoryCount})
+            </SelectItem>
           </SelectContent>
         </Select>
 
@@ -69,7 +157,7 @@ export default function Validation() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tous départements</SelectItem>
-              {DEPARTMENTS.map((d) => (
+              {departments.map((d) => (
                 <SelectItem key={d} value={d}>
                   {d}
                 </SelectItem>
@@ -79,7 +167,7 @@ export default function Validation() {
         </div>
       </div>
 
-      <ValidationQueue febs={queue} />
+      <ValidationQueue febs={queue} getSignatoryStatus={getSignatoryStatus} />
     </div>
   );
 }

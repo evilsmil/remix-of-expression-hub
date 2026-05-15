@@ -1,10 +1,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { Role } from "@/types/feb";
+import { API_URL } from "@/lib/api";
 
 const ALLOWED_DOMAIN = "@upowa.org";
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
-
 type ApiRole =
   | "DEMANDEUR"
   | "RESPONSABLE_TECHNIQUE"
@@ -76,7 +75,10 @@ interface AuthStore {
   refreshToken: string | null;
   registeredUsers: RegisteredUser[];
   login: (email: string, password: string) => AuthResult;
+  loginWithGoogle: (credential: string) => AuthResult;
   register: (email: string, name: string, password: string) => AuthResult;
+  requestPasswordReset: (email: string) => AuthResult;
+  confirmPasswordReset: (token: string, newPassword: string) => AuthResult;
   logout: () => Promise<void>;
   fetchUsers: () => AuthResult;
   updateUserRole: (id: string, role: Role) => AuthResult;
@@ -209,6 +211,65 @@ export const useAuthStore = create<AuthStore>()(
             refreshToken: response.refreshToken,
             registeredUsers: upsertRegisteredUser(state.registeredUsers, user),
           }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error) };
+        }
+      },
+      loginWithGoogle: async (credential: string) => {
+        if (!credential) {
+          return { ok: false, error: "Jeton Google manquant." };
+        }
+
+        try {
+          const response = await apiRequest<AuthResponse>("/auth/google", {
+            method: "POST",
+            body: JSON.stringify({ credential }),
+          });
+          const user = toAuthUser(response.user);
+          set((state) => ({
+            user,
+            accessToken: response.accessToken,
+            refreshToken: response.refreshToken,
+            registeredUsers: upsertRegisteredUser(state.registeredUsers, user),
+          }));
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error) };
+        }
+      },
+      requestPasswordReset: async (rawEmail: string) => {
+        const email = rawEmail.toLowerCase().trim();
+        if (!email) {
+          return { ok: false, error: "Adresse e-mail requise." };
+        }
+        if (!isAllowedEmail(email)) {
+          return { ok: false, error: "Accès réservé aux adresses @upowa.org." };
+        }
+
+        try {
+          await apiRequest<{ ok: true; resetToken?: string }>("/auth/password-reset/request", {
+            method: "POST",
+            body: JSON.stringify({ email }),
+          });
+          return { ok: true };
+        } catch (error) {
+          return { ok: false, error: errorMessage(error) };
+        }
+      },
+      confirmPasswordReset: async (token: string, newPassword: string) => {
+        if (!token || !newPassword) {
+          return { ok: false, error: "Token et nouveau mot de passe requis." };
+        }
+        if (newPassword.length < 6) {
+          return { ok: false, error: "Le mot de passe doit contenir au moins 6 caractères." };
+        }
+
+        try {
+          await apiRequest<{ ok: true }>("/auth/password-reset/confirm", {
+            method: "POST",
+            body: JSON.stringify({ token, newPassword }),
+          });
           return { ok: true };
         } catch (error) {
           return { ok: false, error: errorMessage(error) };

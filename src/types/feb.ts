@@ -1,27 +1,4 @@
-export type Department =
-  | "Direction Générale"
-  | "QHSE"
-  | "Ressources Humaines"
-  | "Contrôle de Gestion"
-  | "Administratif et Financier"
-  | "Recherche et Développement"
-  | "Infrastructures"
-  | "Systèmes d'Information"
-  | "Supply Chains and Operations"
-  | "Commercial et Marketing";
-
-export const DEPARTMENTS: Department[] = [
-  "Direction Générale",
-  "QHSE",
-  "Ressources Humaines",
-  "Contrôle de Gestion",
-  "Administratif et Financier",
-  "Recherche et Développement",
-  "Infrastructures",
-  "Systèmes d'Information",
-  "Supply Chains and Operations",
-  "Commercial et Marketing",
-];
+export type Department = string;
 
 export type Role =
   | "demandeur"
@@ -116,6 +93,7 @@ export interface Feb {
   id: string;
   numero: string; // 000/JJ-MM-AAAA/DD
   natureBesoin: string;
+  departmentId?: string;
   departement: Department;
   demandeurId: string;
   demandeurName: string;

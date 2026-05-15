@@ -6,9 +6,13 @@ import { Feb, pendingDays } from "@/types/feb";
 
 interface ValidationQueueProps {
   febs: Feb[];
+  getSignatoryStatus?: (feb: Feb) => {
+    state: "ok" | "loading" | "missing";
+    message: string;
+  } | null;
 }
 
-export function ValidationQueue({ febs }: ValidationQueueProps) {
+export function ValidationQueue({ febs, getSignatoryStatus }: ValidationQueueProps) {
   if (febs.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-card py-16 text-center">
@@ -27,6 +31,7 @@ export function ValidationQueue({ febs }: ValidationQueueProps) {
         {febs.map((f) => {
           const days = pendingDays(f);
           const late = days >= 5;
+          const signatoryStatus = getSignatoryStatus?.(f) ?? null;
           return (
             <Link
               key={f.id}
@@ -45,6 +50,17 @@ export function ValidationQueue({ febs }: ValidationQueueProps) {
                 <p className="text-xs text-muted-foreground mt-1">
                   <span className="font-mono">{f.numero}</span> · {f.demandeurName} · {f.departement}
                 </p>
+                {signatoryStatus && signatoryStatus.state !== "ok" && (
+                  <p
+                    className={`mt-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${
+                      signatoryStatus.state === "loading"
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-warning-soft text-warning"
+                    }`}
+                  >
+                    {signatoryStatus.message}
+                  </p>
+                )}
               </div>
               <div className="flex flex-col items-end gap-1 shrink-0">
                 <span className={`text-xs tabular-nums ${late ? "text-destructive font-medium" : "text-muted-foreground"}`}>

@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -116,6 +117,10 @@ export default function Login() {
             <Link to="/inscription" className="text-primary font-medium hover:underline">
               Créer un compte
             </Link>
+          </div>
+
+          <div className="mt-5">
+            <GoogleAuthButton mode="login" />
           </div>
 
           <div className="mt-5 pt-5 border-t border-border flex items-start gap-2 text-[11px] text-muted-foreground">

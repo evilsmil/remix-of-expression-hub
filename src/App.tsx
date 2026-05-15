@@ -14,16 +14,9 @@ import FebDetail from "./pages/FebDetail";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Signature from "./pages/Signature";
 import NotFound from "./pages/NotFound.tsx";
-
-// Routes des Bons d'Achat et Prestataires temporairement désactivées
-// import SuppliersList from "./pages/SuppliersList";
-// import SupplierForm from "./pages/SupplierForm";
-// import SupplierDetail from "./pages/SupplierDetail";
-// import PurchaseOrdersList from "./pages/PurchaseOrdersList";
-// import PurchaseOrderCreate from "./pages/PurchaseOrderCreate";
-// import PurchaseOrderDetail from "./pages/PurchaseOrderDetail";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +36,7 @@ const App = () => (
           <Route path="/login" element={<Login />} />
           <Route path="/inscription" element={<Register />} />
           <Route path="/mot-de-passe-oublie" element={<ForgotPassword />} />
+          <Route path="/reinitialiser-mot-de-passe" element={<ResetPassword />} />
           <Route path="/" element={<Protected><Dashboard /></Protected>} />
           <Route path="/historique" element={<Protected><Historique /></Protected>} />
           <Route path="/validation" element={<Protected><Validation /></Protected>} />
@@ -50,15 +44,6 @@ const App = () => (
           <Route path="/febs/:id" element={<Protected><FebDetail /></Protected>} />
           <Route path="/signature" element={<Protected><Signature /></Protected>} />
           <Route path="/administration" element={<Protected><Administration /></Protected>} />
-          { /*
-          <Route path="/prestataires" element={<Protected><SuppliersList /></Protected>} />
-          <Route path="/prestataires/nouveau" element={<Protected><SupplierForm /></Protected>} />
-          <Route path="/prestataires/:id" element={<Protected><SupplierDetail /></Protected>} />
-          <Route path="/prestataires/:id/modifier" element={<Protected><SupplierForm /></Protected>} />
-          <Route path="/bons-achat" element={<Protected><PurchaseOrdersList /></Protected>} />
-          <Route path="/bons-achat/nouveau" element={<Protected><PurchaseOrderCreate /></Protected>} />
-          <Route path="/bons-achat/:id" element={<Protected><PurchaseOrderDetail /></Protected>} />
-          */ }
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

@@ -7,7 +7,6 @@ import {
   computeOrderTotals,
 } from "@/types/purchase-order";
 import { useFebStore } from "@/store/feb-store";
-import { useSignatureStore } from "@/store/signature-store";
 
 interface CreateInput {
   objet: string;
@@ -96,7 +95,6 @@ export const usePurchaseOrderStore = create<POStore>()(
       },
       approveOrder: (id, comment) => {
         const user = useFebStore.getState().getCurrentUser();
-        const sig = useSignatureStore.getState().getSignature(user.email);
         const now = new Date().toISOString();
         set({
           orders: get().orders.map((o) =>
@@ -114,7 +112,6 @@ export const usePurchaseOrderStore = create<POStore>()(
                       action: "approuvee",
                       comment,
                       date: now,
-                      signature: sig ? { type: sig.type, value: sig.value } : undefined,
                     },
                   ],
                 }

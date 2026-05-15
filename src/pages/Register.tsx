@@ -6,6 +6,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { GoogleAuthButton } from "@/components/GoogleAuthButton";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -107,6 +108,7 @@ export default function Register() {
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -122,7 +124,6 @@ export default function Register() {
                   minLength={6}
                 />
               </div>
-            </div>
             </div>
 
             {error && (
@@ -142,6 +143,10 @@ export default function Register() {
             <Link to="/login" className="text-primary font-medium hover:underline">
               Se connecter
             </Link>
+          </div>
+
+          <div className="mt-5">
+            <GoogleAuthButton mode="register" />
           </div>
 
           <div className="mt-5 pt-5 border-t border-border flex items-start gap-2 text-[11px] text-muted-foreground">
