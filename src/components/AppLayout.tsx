@@ -34,6 +34,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const fetchSignatories = useDepartmentsStore((s) => s.fetchSignatories);
   const signatoriesByDepartment = useDepartmentsStore((s) => s.signatoriesByDepartment);
   const loadedDepartmentIdsRef = useRef<Set<string>>(new Set());
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     if (!authUser) {
@@ -138,8 +139,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         { to: "/historique", label: "Historique FEB", icon: History, end: false },
         { to: "/febs/nouveau", label: "Nouvelle FEB", icon: PlusCircle, end: false },
       ];
-
-  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   async function handleLogout() {
     await logout();

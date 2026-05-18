@@ -121,6 +121,7 @@ function toRegisteredUser(user: ApiUser): RegisteredUser {
 }
 
 async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
+  const headers = new Headers(init.headers ?? {});
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
@@ -132,6 +133,11 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (response.status === 401 && headers.has("Authorization")) {
+      clearAuthSession();
+      throw new Error("Session expirée. Veuillez vous reconnecter.");
+    }
+
     const message =
       typeof payload?.message === "string"
         ? payload.message
@@ -343,3 +349,7 @@ export const useAuthStore = create<AuthStore>()(
     { name: "auth-store-v4" },
   ),
 );
+
+export function clearAuthSession(): void {
+  useAuthStore.setState({ user: null, accessToken: null, refreshToken: null });
+}

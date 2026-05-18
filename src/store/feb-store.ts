@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { API_URL } from "@/lib/api";
-import { useAuthStore } from "@/store/auth-store";
+import { clearAuthSession, useAuthStore } from "@/store/auth-store";
 import { useDepartmentsStore } from "@/store/departments-store";
 import {
   type Feb,
@@ -154,6 +154,11 @@ const FALLBACK_USER: User = {
   email: "",
 };
 
+type CurrentAuthUser = ReturnType<typeof useAuthStore.getState>["user"];
+
+let cachedAuthUser: CurrentAuthUser | undefined;
+let cachedCurrentUser: User = FALLBACK_USER;
+
 function normalizeFileUrl(path?: string | null): string | undefined {
   if (!path) {
     return undefined;
@@ -287,6 +292,11 @@ async function febRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearAuthSession();
+      throw new Error("Session expirée. Veuillez vous reconnecter.");
+    }
+
     throw new Error(mapError(payload));
   }
 
@@ -306,16 +316,25 @@ function currentUserFromAuth(): User {
   const authUser = useAuthStore.getState().user;
 
   if (!authUser) {
+    cachedAuthUser = authUser;
+    cachedCurrentUser = FALLBACK_USER;
     return FALLBACK_USER;
   }
 
-  return {
+  if (cachedAuthUser === authUser) {
+    return cachedCurrentUser;
+  }
+
+  cachedAuthUser = authUser;
+  cachedCurrentUser = {
     id: authUser.id,
     name: authUser.name,
     role: authUser.role,
     department: FALLBACK_USER.department,
     email: authUser.email,
   };
+
+  return cachedCurrentUser;
 }
 
 export const useFebStore = create<FebStore>()((set, get) => ({

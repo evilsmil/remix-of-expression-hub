@@ -74,6 +74,18 @@ export default function FebDetail() {
   const [savings, setSavings] = useState("");
   const [trackReceivedDate, setTrackReceivedDate] = useState(""); // datetime-local
 
+  const expectedRole = feb ? roleForStatus(feb.status) : undefined;
+
+  useEffect(() => {
+    if (!feb?.departmentId || !expectedRole) {
+      return;
+    }
+
+    if (!signatoriesByDepartment[feb.departmentId]) {
+      void fetchSignatories(feb.departmentId).catch(() => undefined);
+    }
+  }, [feb?.departmentId, expectedRole, signatoriesByDepartment, fetchSignatories]);
+
   if (!feb) {
     return (
       <div className="text-center py-20">
@@ -85,21 +97,10 @@ export default function FebDetail() {
 
   const isOwnerDraft = feb.status === "brouillon" && feb.demandeurId === user.id;
   const canValidate = canActOn(feb, user.role);
-  const expectedRole = roleForStatus(feb.status);
   const expectedSignatory =
     feb.departmentId && expectedRole
       ? signatoriesByDepartment[feb.departmentId]?.find((entry) => entry.role === expectedRole)
       : undefined;
-
-  useEffect(() => {
-    if (!feb.departmentId || !expectedRole) {
-      return;
-    }
-
-    if (!signatoriesByDepartment[feb.departmentId]) {
-      void fetchSignatories(feb.departmentId).catch(() => undefined);
-    }
-  }, [feb.departmentId, expectedRole, signatoriesByDepartment, fetchSignatories]);
 
   const startEditTracking = () => {
     setTrackProjectName(feb.projectName ?? "");

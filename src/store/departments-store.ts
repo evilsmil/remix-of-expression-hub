@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { API_URL } from "@/lib/api";
-import { useAuthStore } from "@/store/auth-store";
+import { clearAuthSession, useAuthStore } from "@/store/auth-store";
 import type { Role } from "@/types/feb";
 
 type ApiRole =
@@ -67,6 +67,19 @@ interface DepartmentsStore {
   reset: () => void;
 }
 
+const DEFAULT_DEPARTMENTS: DepartmentOption[] = [
+  { id: "default-dg", code: "DG", name: "Direction Générale" },
+  { id: "default-qhse", code: "QHSE", name: "QHSE" },
+  { id: "default-rh", code: "RH", name: "Ressources Humaines" },
+  { id: "default-cg", code: "CG", name: "Contrôle de Gestion" },
+  { id: "default-af", code: "AF", name: "Administratif et Financier" },
+  { id: "default-rd", code: "RD", name: "Recherche et Développement" },
+  { id: "default-inf", code: "INF", name: "Infrastructures" },
+  { id: "default-si", code: "SI", name: "Systèmes d'Information" },
+  { id: "default-sco", code: "SCO", name: "Supply Chains and Operations" },
+  { id: "default-cm", code: "CM", name: "Commercial et Marketing" },
+];
+
 const API_TO_APP_ROLE: Record<ApiRole, Role> = {
   DEMANDEUR: "demandeur",
   RESPONSABLE_TECHNIQUE: "responsable_technique",
@@ -87,6 +100,19 @@ const APP_TO_API_SIGNATORY_ROLE: Record<
   supply_chain: "SUPPLY_CHAIN",
 };
 
+let cachedDepartments: DepartmentOption[] | undefined;
+let cachedDepartmentNames: string[] = [];
+
+function departmentNamesFrom(departments: DepartmentOption[]): string[] {
+  if (cachedDepartments === departments) {
+    return cachedDepartmentNames;
+  }
+
+  cachedDepartments = departments;
+  cachedDepartmentNames = departments.map((department) => department.name);
+  return cachedDepartmentNames;
+}
+
 function mapError(payload: unknown): string {
   if (typeof payload === "object" && payload !== null) {
     const candidate = payload as { message?: string | string[] };
@@ -106,6 +132,11 @@ async function publicRequest<T>(path: string): Promise<T> {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
+    if (response.status === 401) {
+      clearAuthSession();
+      throw new Error("Session expirée. Veuillez vous reconnecter.");
+    }
+
     throw new Error(mapError(payload));
   }
 
@@ -135,7 +166,7 @@ async function authRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const useDepartmentsStore = create<DepartmentsStore>()((set, get) => ({
-  departments: [],
+  departments: DEFAULT_DEPARTMENTS,
   signatoriesByDepartment: {},
   loaded: false,
   loading: false,
@@ -155,8 +186,9 @@ export const useDepartmentsStore = create<DepartmentsStore>()((set, get) => ({
           code: department.code,
           name: department.name,
         }));
-      set({ departments, loaded: true });
-      return departments;
+      const nextDepartments = departments.length > 0 ? departments : DEFAULT_DEPARTMENTS;
+      set({ departments: nextDepartments, loaded: true });
+      return nextDepartments;
     } catch (error) {
       set({ error: error instanceof Error ? error.message : "Chargement des départements impossible." });
       throw error;
@@ -224,8 +256,17 @@ export const useDepartmentsStore = create<DepartmentsStore>()((set, get) => ({
 
     return updated;
   },
-  getDepartmentNames: () => get().departments.map((department) => department.name),
-  findDepartmentIdByName: (name: string) =>
-    get().departments.find((department) => department.name === name)?.id,
-  reset: () => set({ departments: [], signatoriesByDepartment: {}, loaded: false, loading: false, error: null }),
+  getDepartmentNames: () => departmentNamesFrom(get().departments),
+  findDepartmentIdByName: (name: string) => {
+    const id = get().departments.find((department) => department.name === name)?.id;
+    return id?.startsWith("default-") ? undefined : id;
+  },
+  reset: () =>
+    set({
+      departments: DEFAULT_DEPARTMENTS,
+      signatoriesByDepartment: {},
+      loaded: false,
+      loading: false,
+      error: null,
+    }),
 }));
